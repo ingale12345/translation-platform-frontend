@@ -81,7 +81,7 @@ FeathersJS API
 | `src/components/ui/` | shadcn primitives — regenerate with the CLI, avoid hand edits |
 | `src/components/common/` | Cross-feature building blocks (see below) |
 | `src/components/layout/` | App shell, sidebar, topbar, project switcher |
-| `src/app/` | Providers, query client, route tree, router |
+| `src/app/` | Providers, query client, route tree, router, lazy-page factory |
 
 ### The HTTP layer
 
@@ -195,12 +195,15 @@ way to reach the page.
 | `QueryBoundary` | The loading → error → empty → content ladder |
 | `EmptyState` | "Nothing here" — say what to do next, not just that it is empty |
 | `Can` | Permission gating (use `usePermissions()` when the answer drives more than rendering) |
+| `FormField` | Label + control + error, with the `id` wiring done once |
+| `MultiSelect` | Multi-select with removable chips |
+| `AppLink` | In-app link with a string target — see its note on router typing |
+| `SelectField` | Select that renders option **labels**, not raw values |
 | `StatusChip` | Translation status, from the one status table |
 | `SearchInput` | Debounced search box |
 | `Pagination` | Offset paging straight off a Feathers page |
 | `ConfirmDialog` | Destructive confirmations |
 | `UserAvatar` | Avatar with initials fallback |
-| `PlannedPage` | Placeholder for a designed-but-unbuilt screen |
 
 The translation status ladder lives in `src/lib/translation-status.ts`. Every chip, rail
 and filter reads from it, so `APPROVED` is the same indigo everywhere.
@@ -209,17 +212,28 @@ and filter reads from it, so `APPROVED` is the same indigo everywhere.
 
 ## What is built
 
+Every screen in the navigation is built. Three are limited by backend work that does not
+exist yet, and say so on the page rather than failing silently.
+
 | Screen | State |
 |---|---|
 | Login | ✅ |
 | App shell — sidebar, topbar, project switcher, permission peek | ✅ |
-| Translations grid — inline editing, approve/publish, history, comments | ✅ |
-| Roles — permission matrix editor | ✅ |
-| Members — multi-role assignment | ✅ |
-| Dashboard, Applications, Languages, API Tokens, Templates, Import, Export, Audit, Settings | Placeholder + plan |
+| Dashboard — coverage, status roll-up, recent activity | ✅ |
+| Translations — grid, inline editing, add key, approve/publish, history, comments | ✅ |
+| Applications — card grid, create/edit/delete | ✅ |
+| Languages — catalogue and per-project enablement | ✅ |
+| Members — invite, multi-role assignment, remove | ✅ |
+| Roles — matrix editor, create/duplicate/delete | ✅ |
+| Templates — config editor with live output preview | ✅ |
+| Audit Log — infinite feed with before/after diffs | ✅ |
+| Settings — project metadata and feature toggles | ✅ |
+| API Tokens | List and revoke ✅ · **create blocked** — the server must mint the token |
+| Import | Job history ✅ · **upload blocked** — no endpoint receives or parses a file |
+| Export | Job history ✅ · **start blocked** — no worker renders the file |
 
-See [`docs/UI_PLAN.md`](./docs/UI_PLAN.md) for the design of every remaining screen, the
-build order, and the open backend dependencies.
+See [`docs/UI_PLAN.md`](./docs/UI_PLAN.md) for each screen's design, the remaining backend
+dependencies, and the known limitations of the translation grid.
 
 ---
 
@@ -232,5 +246,15 @@ build order, and the open backend dependencies.
   `components/common/` or `lib/`.
 - **Never import axios directly.** Go through a service; that is where the auth and tenant
   headers are attached.
+- **Never use `ui/select` directly.** Use `SelectField` — Base UI's `Select.Value` renders
+  the raw value, so a select over records shows a database id in the trigger.
+- **`DropdownMenuLabel` must sit inside a `DropdownMenuGroup`.** Base UI's `GroupLabel`
+  reads a context the group provides and throws without it.
 - **Comment the "why".** The code says what it does; comments exist for decisions that are
   not obvious from reading it.
+- **Pages are code-split.** Add a screen through `lazyPage` in `src/app/routes.tsx`, so the
+  initial bundle stays the shell.
+- **Derive, do not sync.** A value computable from props or query data is computed in
+  render, not copied into state by an effect. Where local state genuinely has to follow an
+  external change, adjust it during render (see `SearchInput`) — the lint rule that
+  enforces this is on.

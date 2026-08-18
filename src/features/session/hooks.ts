@@ -30,6 +30,26 @@ export const useIsAuthenticated = () =>
 export const useActiveProjectId = () =>
   useSessionStore((state) => state.activeProjectId)
 
+export const useActiveOrganizationId = () =>
+  useSessionStore((state) => state.activeOrganizationId)
+
+/**
+ * Both tenant ids, for building a create payload.
+ *
+ * Every project-scoped record carries `organizationId` *and* `projectId`, and the backend
+ * scopes queries on the pair. Returning them together keeps a form from sending one
+ * without the other, which would write a record no query can find again.
+ */
+export const useActiveTenant = () => {
+  const organizationId = useActiveOrganizationId()
+  const projectId = useActiveProjectId()
+
+  return useMemo(
+    () => ({ organizationId, projectId }),
+    [organizationId, projectId]
+  )
+}
+
 /** `GET /me/memberships` — the source of truth for the project switcher. */
 export const useMemberships = () => {
   const isAuthenticated = useIsAuthenticated()

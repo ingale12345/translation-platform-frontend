@@ -72,16 +72,25 @@ export function MultiSelect({
               aria-invalid={aria["aria-invalid"]}
               className="w-full justify-between font-normal"
             >
-              <span className={cn(selected.length === 0 && "text-muted-foreground")}>
-                {selected.length === 0 ? placeholder : `${selected.length} selected`}
+              <span
+                className={cn(selected.length === 0 && "text-muted-foreground")}
+              >
+                {selected.length === 0
+                  ? placeholder
+                  : `${selected.length} selected`}
               </span>
               <ChevronsUpDownIcon className="text-muted-foreground" />
             </Button>
           }
         />
-        <DropdownMenuContent align="start" className="max-h-72 w-(--anchor-width) overflow-y-auto">
+        <DropdownMenuContent
+          align="start"
+          className="max-h-72 w-(--anchor-width) overflow-y-auto"
+        >
           {options.length === 0 ? (
-            <p className="text-muted-foreground px-2 py-3 text-xs">Nothing to choose from.</p>
+            <p className="px-2 py-3 text-xs text-muted-foreground">
+              Nothing to choose from.
+            </p>
           ) : (
             options.map((option) => {
               const isSelected = value.includes(option.value)
@@ -92,17 +101,19 @@ export function MultiSelect({
                   type="button"
                   onClick={() => toggle(option)}
                   disabled={option.locked && isSelected}
-                  className="hover:bg-accent flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-sm disabled:opacity-60"
+                  className="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-sm hover:bg-accent disabled:opacity-60"
                 >
                   <span className="flex-1 truncate">
                     {option.label}
                     {option.hint ? (
-                      <span className="text-muted-foreground ml-1.5 font-mono text-[10px]">
+                      <span className="ml-1.5 font-mono text-[10px] text-muted-foreground">
                         {option.hint}
                       </span>
                     ) : null}
                   </span>
-                  {isSelected ? <CheckIcon className="size-4 shrink-0" /> : null}
+                  {isSelected ? (
+                    <CheckIcon className="size-4 shrink-0" />
+                  ) : null}
                 </button>
               )
             })
@@ -113,14 +124,18 @@ export function MultiSelect({
       {selected.length > 0 ? (
         <div className="flex flex-wrap gap-1">
           {selected.map((option) => (
-            <Badge key={option.value} variant="secondary" className="gap-1 pr-1">
+            <Badge
+              key={option.value}
+              variant="secondary"
+              className="gap-1 pr-1"
+            >
               {option.label}
               {option.locked ? null : (
                 <button
                   type="button"
                   onClick={() => toggle(option)}
                   aria-label={`Remove ${option.label}`}
-                  className="hover:text-foreground text-muted-foreground"
+                  className="text-muted-foreground hover:text-foreground"
                 >
                   <XIcon className="size-3" />
                 </button>

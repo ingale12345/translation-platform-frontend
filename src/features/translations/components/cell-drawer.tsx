@@ -49,7 +49,10 @@ export function CellDrawer({
 
   return (
     <Sheet open={open} onOpenChange={(next) => (next ? undefined : onClose())}>
-      <SheetContent side="right" className="w-[420px] sm:max-w-[420px]">
+      <SheetContent
+        side="right"
+        className="w-full sm:w-[480px] sm:max-w-[480px]"
+      >
         <SheetHeader>
           <SheetTitle>
             {mode === "history" ? "Cell history" : "Comments"}

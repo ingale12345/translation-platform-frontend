@@ -1,7 +1,16 @@
-import { CircleDotIcon, InfoIcon, ShieldIcon } from "lucide-react"
+import {
+  CircleDotIcon,
+  CopyIcon,
+  InfoIcon,
+  PencilIcon,
+  PlusIcon,
+  ShieldIcon,
+  Trash2Icon,
+} from "lucide-react"
 import { useMemo, useState } from "react"
 import { toast } from "sonner"
 
+import { ConfirmDialog } from "@/components/common/confirm-dialog"
 import { EmptyState } from "@/components/common/empty-state"
 import { QueryBoundary } from "@/components/common/query-boundary"
 import { Badge } from "@/components/ui/badge"
@@ -12,8 +21,10 @@ import {
   permissionMapToRole,
   roleToPermissionMap,
   useProjectRoles,
+  useRemoveRole,
   useUpdateRole,
 } from "@/features/roles/hooks"
+import { useProjectMemberRows } from "@/features/project-members/hooks"
 import { useActiveProjectId, usePermissions } from "@/features/session/hooks"
 import { errorMessage } from "@/lib/http/errors"
 import { ENTITLEMENTS, countGrants } from "@/lib/rbac"
@@ -21,6 +32,8 @@ import type { PermissionAction, PermissionMap } from "@/lib/rbac"
 import { cn } from "@/lib/utils"
 import type { Id } from "@/types/api"
 import { PermissionMatrix } from "./components/permission-matrix"
+import { RoleFormDialog } from "./components/role-form-dialog"
+import type { RoleDialogMode } from "./components/role-form-dialog"
 
 /**
  * Roles and their permission matrices.
@@ -33,6 +46,8 @@ export function RolesPage() {
   const projectId = useActiveProjectId()
   const { can } = usePermissions()
   const canUpdate = can(ENTITLEMENTS.ROLES, "update")
+  const canCreate = can(ENTITLEMENTS.ROLES, "create")
+  const canDelete = can(ENTITLEMENTS.ROLES, "delete")
 
   const rolesQuery = useProjectRoles(projectId)
   const entitlementsQuery = useAllEntitlements({
@@ -40,6 +55,8 @@ export function RolesPage() {
     sortAsc: "displayOrder",
   })
   const updateRole = useUpdateRole()
+  const removeRole = useRemoveRole()
+  const { rows: memberRows } = useProjectMemberRows(projectId)
 
   const roles = useMemo(() => rolesQuery.data ?? [], [rolesQuery.data])
   const entitlements = useMemo(
@@ -80,6 +97,30 @@ export function RolesPage() {
     draft && saved && JSON.stringify(draft) !== JSON.stringify(saved)
   )
 
+  const [dialog, setDialog] = useState<{ mode: RoleDialogMode } | null>(null)
+  const [pendingDelete, setPendingDelete] = useState(false)
+
+  /** How many members would lose this role — the number that makes a delete real. */
+  const holderCount = selected
+    ? memberRows.filter((row) => row.member.roleIds.includes(selected._id))
+        .length
+    : 0
+
+  const deleteRole = () => {
+    if (!selected) {
+      return
+    }
+
+    removeRole.mutate(selected._id, {
+      onSuccess: () => {
+        toast.success(`${selected.roleName} deleted`)
+        setPendingDelete(false)
+        setRequestedId(null)
+      },
+      onError: (error) => toast.error(errorMessage(error)),
+    })
+  }
+
   const toggle = (entitlementCode: string, action: PermissionAction) => {
     setDraft((current) => {
       if (!current) {
@@ -118,9 +159,21 @@ export function RolesPage() {
   return (
     <div className="flex h-full">
       <div className="w-64 shrink-0 overflow-y-auto border-r bg-card p-3">
-        <p className="mb-2 px-1 text-[10px] font-semibold tracking-wide text-muted-foreground uppercase">
-          Roles
-        </p>
+        <div className="mb-2 flex items-center justify-between px-1">
+          <p className="text-[10px] font-semibold tracking-wide text-muted-foreground uppercase">
+            Roles
+          </p>
+          {canCreate ? (
+            <Button
+              variant="ghost"
+              size="sm"
+              aria-label="New role"
+              onClick={() => setDialog({ mode: "create" })}
+            >
+              <PlusIcon />
+            </Button>
+          ) : null}
+        </div>
 
         {rolesQuery.isLoading ? (
           <div className="space-y-1.5">
@@ -181,8 +234,18 @@ export function RolesPage() {
           empty={
             <EmptyState
               icon={ShieldIcon}
-              title="No role selected"
-              body="Roles are project-scoped. Seed the project's system roles to get started."
+              title="No roles yet"
+              body="Roles are project-scoped. Create one, then choose what it grants in the matrix."
+              action={
+                canCreate ? (
+                  <Button
+                    size="sm"
+                    onClick={() => setDialog({ mode: "create" })}
+                  >
+                    <PlusIcon /> New role
+                  </Button>
+                ) : undefined
+              }
             />
           }
         >
@@ -206,14 +269,46 @@ export function RolesPage() {
                   </p>
                 </div>
 
-                {editable ? (
-                  <Button
-                    onClick={save}
-                    disabled={!isDirty || updateRole.isPending}
-                  >
-                    {updateRole.isPending ? "Saving…" : "Save changes"}
-                  </Button>
-                ) : null}
+                <div className="flex shrink-0 items-center gap-1.5">
+                  {canCreate ? (
+                    <Button
+                      variant="outline"
+                      onClick={() => setDialog({ mode: "duplicate" })}
+                    >
+                      <CopyIcon /> Duplicate
+                    </Button>
+                  ) : null}
+
+                  {canUpdate && !isSystem ? (
+                    <Button
+                      variant="outline"
+                      aria-label="Rename role"
+                      onClick={() => setDialog({ mode: "edit" })}
+                    >
+                      <PencilIcon />
+                    </Button>
+                  ) : null}
+
+                  {canDelete && !isSystem ? (
+                    <Button
+                      variant="outline"
+                      className="text-destructive"
+                      aria-label="Delete role"
+                      onClick={() => setPendingDelete(true)}
+                    >
+                      <Trash2Icon />
+                    </Button>
+                  ) : null}
+
+                  {editable ? (
+                    <Button
+                      onClick={save}
+                      disabled={!isDirty || updateRole.isPending}
+                    >
+                      {updateRole.isPending ? "Saving…" : "Save changes"}
+                    </Button>
+                  ) : null}
+                </div>
               </div>
 
               {isSystem ? (
@@ -241,6 +336,29 @@ export function RolesPage() {
           ) : null}
         </QueryBoundary>
       </div>
+
+      <RoleFormDialog
+        open={Boolean(dialog)}
+        onOpenChange={(open) => (open ? undefined : setDialog(null))}
+        mode={dialog?.mode ?? "create"}
+        role={dialog?.mode === "create" ? undefined : selected}
+        onCreated={(created) => setRequestedId(created._id)}
+      />
+
+      <ConfirmDialog
+        open={pendingDelete}
+        onOpenChange={setPendingDelete}
+        title={`Delete ${selected?.roleName}?`}
+        description={
+          holderCount > 0
+            ? `${holderCount} member${holderCount === 1 ? "" : "s"} hold this role and will lose everything it grants. Members left with no role keep access to the project but can do nothing in it.`
+            : "No member holds this role, so nobody loses access."
+        }
+        confirmLabel="Delete role"
+        destructive
+        isPending={removeRole.isPending}
+        onConfirm={deleteRole}
+      />
     </div>
   )
 }

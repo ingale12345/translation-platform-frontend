@@ -5,6 +5,8 @@ import {
   useQueryClient,
 } from "@tanstack/react-query"
 import type {
+  InfiniteData,
+  QueryKey,
   UseInfiniteQueryOptions,
   UseMutationOptions,
   UseQueryOptions,
@@ -100,7 +102,16 @@ export const createResourceHooks = <
   const useInfiniteList = (
     query?: Omit<ListQuery<TQuery>, "skip">,
     options?: Omit<
-      UseInfiniteQueryOptions<Paginated<TModel>, ApiError>,
+      UseInfiniteQueryOptions<
+        Paginated<TModel>,
+        ApiError,
+        // `TData` defaults to `TQueryFnData`, not `InfiniteData<…>`. Leaving it at the
+        // default types `data` as a single page, so `data.pages` does not exist and every
+        // caller has to cast. Naming it here is what makes the hook usable.
+        InfiniteData<Paginated<TModel>>,
+        QueryKey,
+        number
+      >,
       "queryKey" | "queryFn" | "initialPageParam" | "getNextPageParam"
     >
   ) => {

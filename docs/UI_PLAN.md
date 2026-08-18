@@ -68,8 +68,10 @@ invention:
 |---|---|
 | **Grid** — sticky header + sticky first column, inline edit | Translations |
 | **Master / detail** — list rail on the left, document on the right | Roles, Templates |
-| **Table** — `PageHeader` + `DataTable` + `Pagination` | Members, API Tokens, Audit, Languages |
+| **Table** — `PageHeader` + `DataTable` + `Pagination` | Members, API Tokens, Languages, Import, Export |
 | **Card grid** — `PageHeader` + responsive cards | Applications |
+| **Tabbed form** — `PageHeader` + `Tabs` + explicit save | Settings |
+| **Feed** — infinite list of events | Audit Log, Dashboard activity |
 
 ---
 
@@ -95,12 +97,13 @@ The signature surface. Keys down the side, languages across the top.
 
 | Element | Behaviour |
 |---|---|
-| Toolbar | Application select · debounced key search · status filter · Import / Export / Add key (all permission-gated) |
+| Toolbar | Application select · debounced key search · status filter · Add key · Import / Export (all permission-gated) |
 | Coverage strip | % APPROVED-or-PUBLISHED per language, **for the loaded page** |
 | Grid | Sticky header and key column; each cell has a status rail, value, chip and hover actions |
-| Cell edit | Double-click or the pencil. `⏎` saves, `esc` cancels. Status advances `MISSING → DRAFT`, `existing → REVIEW` |
+| Cell edit | Click the text to edit. Short values (≤80 chars) edit **inline** — `⏎` saves, `esc` cancels. Longer values open the **dialog editor**, with the source string beside them for reference, because a two-row box is the wrong shape for a paragraph. The pencil always opens the dialog. Status advances `MISSING → DRAFT`, `existing → REVIEW` |
 | Cell actions | Approve (`DRAFT`/`REVIEW` only), Publish (`APPROVED` only), History, Comments |
 | Drawer | Right sheet: cell history, or a comment thread |
+| Add key | Dialog creating the key `MISSING` in every supported language, so it lands in a translator's queue rather than shipping placeholder text |
 | Read-only banner | Shown when the role lacks `TRANSLATIONS:update`, so a translator understands why nothing is editable |
 
 **Known limits, all backend-dependent:**
@@ -111,7 +114,7 @@ The signature surface. Keys down the side, languages across the top.
 | Search matches `key` only, not values | Cannot find "the key whose Japanese says X" | Backend `GET /translation-keys/search?q=` across the nested map |
 | Cell writes send the whole `translations` object | Two people editing *different languages of the same key* within one round-trip can clobber each other | `PATCH /translation-keys/:id/cell`, or a version field for optimistic concurrency |
 | Comment counts are not shown per cell | The badge always reads 0 until the drawer is opened | Backend aggregate, or a per-page comment-count query |
-| Add key / Import / Export buttons are inert | Gated and visible, but disabled | Sections 3.6 and 3.8 |
+| Import / Export buttons are inert | Gated and visible, but disabled | §3.8 and §3.9 — both need backend workers |
 
 ### 3.4 Roles — ✅ built
 
@@ -124,8 +127,19 @@ on the right.
   An unchecked box would imply "off, and you could turn it on".
 - System roles (`isSystem`) are read-only, with a banner saying to duplicate instead.
 
-**Next:** create-role dialog, duplicate-role action, delete with a confirm that names how
-many members hold the role.
+Create, duplicate and rename live in a dialog that owns identity only — grants stay in the
+matrix, where they have room. Duplicating is the supported way to derive an editable role
+from a locked system one, and it carries the grants over; a fresh role starts with none, so
+its author has to state what it may do.
+
+Delete names how many members hold the role, which is the number that makes the decision
+real.
+
+**⚠️ A fresh project has no roles**, because nothing seeds system roles per project yet
+(§5 item 10). The screen shows an empty state with a create action rather than looking
+broken.
+
+**Next:** filter the role list; show which members hold a role from the detail pane.
 
 ### 3.5 Members — ✅ built
 
@@ -136,41 +150,64 @@ many members hold the role.
 - A member must keep at least one role; stripping the last one is refused with an
   explanation. Removing the member is how access is revoked.
 
-**Next:** invite flow (email → user lookup or create → roles → send), remove-member
-confirm, resend invitation.
+Invite looks the user up by email first: `POST /users` is open registration, so minting a
+platform account on someone's behalf from a project screen would cross a boundary. If no
+account exists, the dialog says so rather than silently creating one.
+
+Removal is a `PATCH { status: 'removed' }`, not a delete — the member record carries the
+audit trail for everything they translated, and the backend fails authorization on
+`removed` immediately either way.
+
+**Next:** resend invitation; show pending invitations distinctly.
 
 ---
 
-### 3.6 Applications — planned
+### 3.6 Applications — ✅ built
 
 **Pattern:** card grid.
 
-Each card: icon by type, name, `code` in mono, type badge, language chips, key count, and
-a coverage bar. Click opens a detail sheet with the export/import template bindings and the
-API-enabled toggle.
+Each card carries the platform badge, name, `code` in mono, and its language chips (the
+source language marked with `·`). Edit and delete appear on hover.
 
-- Create/edit form: name, code (slug, immutable after create), type, default language,
-  supported languages (multi-select from the project's set), templates, `apiEnabled`.
-- **Depends on:** nothing new. `applicationsService` and `useApplications` exist.
-- **Watch:** `supportedLanguages` must be a subset of the project's. Enforce in the form
-  and mirror the check server-side.
+- Create/edit dialog: name, code, description, platform, languages, default language,
+  `apiEnabled`.
+- **`code` is immutable after creation.** It appears in the consumption API URL, so
+  changing it silently breaks every deployed client fetching by that path.
+- The language multi-select offers only the project's enabled set, and the default-language
+  select narrows to what is selected — a subset constraint the form makes unrepresentable
+  rather than validating after the fact.
 
-### 3.7 Languages — planned
+**Next:** key counts and a coverage bar per card (needs the same aggregate as §5 item 4);
+archive as a distinct action from delete.
 
-**Pattern:** table.
+### 3.7 Languages — ✅ built
 
-Languages are **global**; a project enables a subset. Two sections on one page:
+**Pattern:** two tables on one page.
 
-1. *Enabled in this project* — reorderable, with the default marked.
-2. *Available* — the rest of the catalogue, with an Enable action.
+1. *Enabled in this project* — the source language is badged and cannot be disabled;
+   the others offer "Make source" and "Disable".
+2. *Available in the catalogue* — everything else, with "Enable".
 
-- Columns: code, name, native name, locale, RTL, sort order.
-- **Depends on:** the project's `supportedLanguages` array — enabling a language is a
-  `PATCH /projects/:id`, not a write to `languages`.
+- Enabling is a `PATCH /projects/:id` against `supportedLanguages`, **not** a write to
+  `languages`. Getting that backwards would let one project's choice change every other
+  project's.
+- Adding to the catalogue is create-only: editing a language `code` would orphan every
+  translation keyed by it across every project, and there is no safe path for that.
+- Disabling warns that existing translations are kept but stop being exported.
 
-### 3.8 Import — planned
+**Next:** drag-to-reorder the enabled list (writes `sortOrder`).
 
-**Pattern:** wizard, then a job table.
+### 3.8 Import — job history ✅ · wizard blocked
+
+**Built:** the job history table — file, application, language, status, per-run statistics,
+and expandable per-line errors.
+
+**Not built, deliberately:** the upload wizard. `POST /import-jobs` records a job, but
+nothing transfers or parses the file, so a job started from the console would sit at
+`QUEUED` forever. The page says so instead of offering a button that produces a dead
+record.
+
+**Pattern when it lands:** wizard, then the existing job table.
 
 ```
 1 Source      application · language · template
@@ -185,74 +222,101 @@ Languages are **global**; a project enables a subset. Two sections on one page:
   endpoint or a signed-URL flow, plus the `POST /import-jobs/:id/preview` and `/apply`
   methods that `docs/API.md` lists as planned.
 
-### 3.9 Export — planned
+### 3.9 Export — job history ✅ · start blocked
 
-**Pattern:** form + job table.
+**Built:** the job history table — file, application, language, status, key counts, and
+the failure reason when there is one.
 
-Pick application, languages (multi), template, and a status floor (default: published
-only). Submit creates a job; the table polls until `COMPLETED`, then offers the download.
+**Not built, deliberately:** starting an export, for the same reason as Import — no worker
+renders the file, so the download would never appear.
 
-- **Depends on:** `POST /export-jobs` producing a retrievable file. Note the artifact
-  cannot be handed over through a plain link if the console is ever embedded — serve it
-  from an authenticated endpoint.
+**When it lands:** pick application, languages, template and a status floor (default:
+published only), then poll to `COMPLETED`. Serve the finished artifact from an
+authenticated endpoint — an export bundle is project content, not a public asset, and a
+plain link would also be inert inside a sandboxed embed.
 
-### 3.10 Templates — planned
+### 3.10 Templates — ✅ built
 
 **Pattern:** master/detail.
 
-List by file type (JSON / PROPERTIES / ARB / XML / YAML / CSV / CUSTOM). The detail pane
-holds the import and export config side by side, each with `fileStart` / `fileRow` /
-`fileEnd` / `separator` / `encoding`, and a **live preview** rendering three sample keys
-through the template. The preview is the point — these configs are unreadable otherwise.
+The detail pane tabs between the export and import configs, each beside a **live preview**
+rendering three sample keys through the template. The preview is the point — four text
+fields are unreadable, and a template that emits a trailing comma only shows itself as
+broken in the assembled file.
 
+- New templates start from a per-file-type default (`lib/template-preview.ts`) rather than
+  blank: nobody writes JSON brace-and-comma scaffolding from memory.
+- Changing the file type updates the extension with it.
+- Config edits are staged and saved explicitly, like the roles matrix.
 - System templates are read-only, same rule as system roles.
 
-### 3.11 API Tokens — planned
+**⚠️ The preview is a client-side approximation.** `renderExportPreview` defines the token
+set (`{key}`, `{value}`, `{namespace}`, `{language}`, `{index}`); the authoritative
+renderer is the export worker, which does not exist yet. **If the worker adopts different
+tokens, this preview becomes a lie — change both together.**
 
-**Pattern:** table.
+### 3.11 API Tokens — list and revoke ✅ · create blocked
 
-Columns: name, `tokenPrefix` in mono, application, permissions, expiry, last used, enabled.
+**Built:** the table — name, `tokenPrefix`, application, scope, last used, expiry — plus
+revoke and delete.
 
-- **The plaintext token is shown exactly once**, in a dialog after create, with a copy
-  button and an unmissable "you will not see this again".
-- Revoke is a `PATCH { enabled: false }`, not a delete — the audit trail should keep the
-  record.
-- **Depends on:** the backend generating and returning the plaintext once. Today
-  `apiTokensDataSchema` accepts `tokenHash` from the client, which is wrong — the server
-  should mint both hash and prefix.
+- Revoke is a `PATCH { enabled: false }`, not a delete, so the audit trail keeps the
+  record. The delete confirm says as much.
 
-### 3.12 Audit Log — planned
+**Not built, deliberately:** creating a token. `apiTokensDataSchema` accepts `tokenHash`
+from the client, which would mean the browser minting the secret *and* choosing its own
+hash — a credential nobody can trust. The server has to generate both and return the
+plaintext exactly once. Withheld rather than shipped broken.
 
-**Pattern:** infinite table.
+**When it lands:** show the plaintext in a dialog after create, with a copy button and an
+unmissable "you will not see this again".
 
-`useInfiniteActivityLogs` is already wired. Filters: actor, entity type, action, date
-range. Each row expands to show the `oldValue` → `newValue` diff.
+### 3.12 Audit Log — ✅ built
 
-- **Depends on:** something actually writing activity logs. The service exists; no hook
-  populates it yet.
+**Pattern:** infinite feed.
 
-### 3.13 Settings — planned
+Rows show actor, description, entity type and relative time; those with a recorded change
+expand to a before/after pair. The expander only appears when there is something behind it
+— a chevron that reveals nothing teaches people to stop clicking.
+
+Filters: free-text over `action`, and entity type.
+
+**⚠️ Still empty in practice.** Nothing on the backend writes activity logs yet, so this
+screen will show its empty state until that lands (§5 item 9).
+
+**Next:** actor and date-range filters.
+
+### 3.13 Settings — ✅ built
 
 **Pattern:** tabbed form.
 
-- *General* — name, code, description, logo.
-- *Languages* — default and supported.
-- *Features* — `allowMachineTranslation`, `allowClientTranslation`, `allowApiAccess`,
-  `autoTranslateNewKeys`, `defaultNamespace`.
-- *Danger zone* — archive project, behind a type-the-name confirm.
+- *General* — name, description, logo, default namespace. `code` is shown read-only: it
+  identifies the project in the consumption API.
+- *Features* — the four `settings` toggles.
+- *Danger zone* — archive, **not yet wired**: the confirm needs to name how many
+  applications and keys go with it, and that count needs the aggregate in §5 item 4.
 
-### 3.14 Dashboard — planned
+Languages are deliberately *not* here — they live on the Languages screen beside the global
+catalogue. Splitting one model across two screens is worse than the extra click.
 
-**Pattern:** card grid + charts. Build this **last** — it is a view over data the other
-screens produce, and building it first means guessing what matters.
+### 3.14 Dashboard — ✅ built
 
-- Coverage per language × application (stacked bar).
-- Counts by status, as filter links into the grid.
-- Keys awaiting review / publish, for the current user's roles.
-- Running import/export jobs.
-- Recent activity, from the audit log.
+**Pattern:** stat cards + meters + activity feed.
 
-Load the `dataviz` skill before writing any chart code here.
+- Four stat cards: keys, applications, awaiting review, ready to publish. Each links into
+  the screen that acts on it.
+- Coverage by language, and cells by status, as horizontal meters reading from the one
+  status table.
+- Recent activity, gated on `AUDIT_LOGS:read`.
+
+**⚠️ Status and coverage are computed from a 500-key sample**, because status lives inside
+each key's nested `translations` map and Feathers cannot aggregate over it. The cards say
+"across a sample of N of M keys" whenever the project is larger. A dashboard that quietly
+rounds down is worse than one that admits its scope — do not remove that label before §5
+item 4 lands.
+
+Meters are deliberately plain CSS, not a charting library. If real charts are added here,
+load the `dataviz` skill first.
 
 ---
 
@@ -260,19 +324,25 @@ Load the `dataviz` skill before writing any chart code here.
 
 Each step is shippable on its own.
 
-| # | Work | Why here |
+Steps 1–5, 9, 10 and 11 shipped. What is left is blocked on backend work, not on UI
+decisions — each entry names the item in §5 it waits on.
+
+| # | Work | Status |
 |---|---|---|
-| 1 | Applications + Languages CRUD | The translation grid is empty until a project has applications and languages |
-| 2 | Add-key dialog, in the grid | Completes the core loop: create → translate → approve → publish |
-| 3 | Members invite flow | The platform is unusable by a team until people can be added |
-| 4 | Roles create / duplicate / delete | Follows the invite flow — new members need roles to hold |
-| 5 | Templates + preview | Prerequisite for import and export |
-| 6 | Export | Simpler than import; proves the template pipeline end to end |
-| 7 | Import wizard | The largest single screen; needs upload plumbing |
-| 8 | API Tokens | Unlocks the consumption API for real applications |
-| 9 | Audit Log | Needs activity logs to be written first |
-| 10 | Settings | Small, and mostly forms over existing endpoints |
-| 11 | Dashboard | A view over everything above |
+| 1 | Applications + Languages CRUD | ✅ |
+| 2 | Add-key dialog, in the grid | ✅ |
+| 3 | Members invite flow | ✅ |
+| 4 | Roles create / duplicate / delete | ✅ |
+| 5 | Templates + preview | ✅ |
+| 6 | Export — start a job | Blocked on §5 item 6 (render worker) |
+| 7 | Import wizard | Blocked on §5 item 7 (upload endpoint) |
+| 8 | API Tokens — create | Blocked on §5 item 8 (server-minted tokens) |
+| 9 | Audit Log | ✅ UI · empty until §5 item 9 writes logs |
+| 10 | Settings | ✅ except archive, which needs §5 item 4 |
+| 11 | Dashboard | ✅ sampled · exact once §5 item 4 lands |
+
+Nothing in the console now depends on further UI design to be useful. The next meaningful
+increment is backend.
 
 ---
 
@@ -286,14 +356,33 @@ console.
 | 1 | `GET /me/memberships`, `GET /me/permissions` | Project switcher, all permission gating | **done** |
 | 2 | `$regex` / `$options` in the allowed operator set | Every search box | **done** |
 | 3 | Real `dataSchema`s for the nine stub services | Any create through those services | **done** |
-| 4 | Server-side status filter or a denormalised status summary | Translations status filter beyond one page | open |
+| 4 | Server-side status aggregate (or a denormalised `statusSummary`) | Translations status filter beyond one page · exact dashboard figures · archive confirm counts | open |
 | 5 | Search across translated values | Finding a key by its content | open |
-| 6 | Single-cell patch, or optimistic concurrency on `translations` | Concurrent cell edits | open |
-| 7 | File upload for import | Import wizard | open |
-| 8 | Server-minted API tokens, plaintext returned once | API Tokens screen | open |
-| 9 | Activity logs actually written | Audit Log | open |
-| 10 | System roles seeded per project | Roles screen is empty for a fresh project | open |
-| 11 | Refresh tokens | Sessions currently end at JWT expiry (1 day) | open |
+| 6 | Export render worker | Starting an export; serve the artifact from an authenticated endpoint | open |
+| 7 | File upload + parse for import | Import wizard | open |
+| 8 | Server-minted API tokens, plaintext returned once | Creating API tokens | open |
+| 9 | Activity logs actually written | Audit Log has UI but no data | open |
+| 10 | System roles seeded per project | A fresh project has no roles at all | open |
+| 11 | Single-cell patch, or optimistic concurrency on `translations` | Concurrent cell edits clobbering each other | open |
+| 12 | Refresh tokens | Sessions end at JWT expiry (1 day) | open |
+| 13 | Template render engine matching `lib/template-preview.ts` tokens | The preview is only truthful if the worker agrees | open |
+
+Item 4 is the highest-leverage: it unblocks three screens at once.
+
+### Fixed since the console first ran
+
+Four defects found by running the app against real data, all backend:
+
+| Defect | Symptom in the console | Fix |
+|---|---|---|
+| ObjectId strings not coerced inside `$in` / `$nin` | Every join returned empty: no roles, no project names, an empty sidebar for **every** role including super admin | `hooks/coerce-object-ids.ts` |
+| `users` query resolver scoped `_id` to the caller | Members table showed "Unknown user", audit log had no actors, invite-by-email found nobody | Scoped to users sharing a project — `common/utils/visible-users.ts` |
+| `DropdownMenuLabel` outside a `DropdownMenuGroup` | Profile menu crashed the page | Wrapped in `DropdownMenuGroup` (Base UI's `GroupLabel` reads a context the group provides) |
+| Base UI `Select.Value` renders the raw value | Dropdowns showed database ids instead of names | `components/common/select-field.tsx` renders the option's label |
+
+The first two are worth remembering as a pair: both were *silent*. A query that matches
+nothing looks identical to a project with no data, so the console rendered empty states
+rather than errors and the failure read as "the UI is not finished".
 
 ---
 
@@ -305,7 +394,24 @@ Applies to every screen, not just new ones:
   heavily.
 - The grid is keyboard-operable: `⏎` saves, `esc` cancels. **Open:** arrow-key movement
   between cells.
+- Derived state is computed in render, never synced by an effect. Where local state must
+  follow an external change, it is adjusted during render (`SearchInput`, the roles and
+  templates drafts) — the `react-hooks/set-state-in-effect` lint rule enforces this.
 - Status is never conveyed by colour alone — every chip carries its label.
 - Wide content scrolls inside its own container; the page body never scrolls sideways.
 - Skeletons match the shape of what they replace.
 - Both themes are checked before a screen is called done.
+
+### Known tooling limitation
+
+`Link to="/audit"` and `redirect({ to })` do **not** typecheck against the route tree.
+The router's registered type is computed from a tree whose components import the router,
+so path literals collapse to a half-built union. Two escapes are in place, each documented
+at its definition: `AppLink` (`components/common/app-link.tsx`) for links, and
+`redirectForward` (`app/routes.tsx`) for redirects. Paths are therefore validated by the
+router at runtime, not by the compiler.
+
+Lazy page routes were tried as a fix and do not work — the cycle runs through `AppShell`,
+which the tree imports statically and which renders its own links. Breaking it properly
+means moving to file-based routing with a generated route tree. Lazy routes were kept
+regardless: they cut the initial bundle from 891 kB to 391 kB.

@@ -13,13 +13,7 @@ import { Pagination } from "@/components/common/pagination"
 import { SearchInput } from "@/components/common/search-input"
 import { StatusChip } from "@/components/common/status-chip"
 import { Button } from "@/components/ui/button"
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select"
+import { SelectField } from "@/components/common/select-field"
 import { Skeleton } from "@/components/ui/skeleton"
 import { useAllApplications } from "@/features/applications/hooks"
 import { useAllLanguages } from "@/features/languages/hooks"
@@ -33,9 +27,10 @@ import {
 import { errorMessage } from "@/lib/http/errors"
 import { ENTITLEMENTS } from "@/lib/rbac"
 import { TRANSLATION_STATUS_FLOW, statusMeta } from "@/lib/translation-status"
-import { cn } from "@/lib/utils"
 import type { Id } from "@/types/api"
 import type { TranslationKey, TranslationStatus } from "@/types/models"
+import { AddKeyDialog } from "./components/add-key-dialog"
+import { CellEditDialog } from "./components/cell-edit-dialog"
 import { CellDrawer } from "./components/cell-drawer"
 import type { CellDrawerMode } from "./components/cell-drawer"
 import { TranslationCell } from "./components/translation-cell"
@@ -89,6 +84,8 @@ export function TranslationsPage() {
     mode: CellDrawerMode
     cell: EditingCell
   } | null>(null)
+  const [isAddKeyOpen, setAddKeyOpen] = useState(false)
+  const [expanded, setExpanded] = useState<EditingCell | null>(null)
 
   // The selected application is *derived*: switching project replaces the list, and a
   // requested id that is no longer in it falls back to the first rather than leaving the
@@ -133,6 +130,9 @@ export function TranslationsPage() {
   const languageByCode = new Map(
     (languagesQuery.data ?? []).map((lang) => [lang.code, lang])
   )
+  const languageNames = new Map(
+    (languagesQuery.data ?? []).map((lang) => [lang.code, lang.name])
+  )
 
   const rows = useMemo(() => gridQuery.data?.data ?? [], [gridQuery.data])
 
@@ -166,6 +166,35 @@ export function TranslationsPage() {
 
     setEditing({ keyId: row._id, languageCode })
     setDraft(row.translations[languageCode]?.value ?? "")
+  }
+
+  const startExpandedEdit = (row: TranslationKey, languageCode: string) => {
+    if (!canEdit) {
+      return
+    }
+
+    // Close any inline editor first, so the same cell is not open in two places at once.
+    setEditing(null)
+    setExpanded({ keyId: row._id, languageCode })
+  }
+
+  const saveExpanded = (value: string) => {
+    const row = rows.find((item) => item._id === expanded?.keyId)
+
+    if (!row || !expanded) {
+      return
+    }
+
+    setCellValue.mutate(
+      { translationKey: row, languageCode: expanded.languageCode, value },
+      {
+        onSuccess: () => {
+          toast.success("Translation saved")
+          setExpanded(null)
+        },
+        onError: (error) => toast.error(errorMessage(error)),
+      }
+    )
   }
 
   const saveEdit = (row: TranslationKey, languageCode: string) => {
@@ -228,21 +257,17 @@ export function TranslationsPage() {
   return (
     <div className="flex h-full flex-col">
       <div className="flex flex-wrap items-center gap-2 border-b bg-card px-5 py-3">
-        <Select
-          value={applicationId ?? undefined}
-          onValueChange={(value) => setRequestedApplicationId(value as Id)}
-        >
-          <SelectTrigger className="w-56">
-            <SelectValue placeholder="Application" />
-          </SelectTrigger>
-          <SelectContent>
-            {applications.map((item) => (
-              <SelectItem key={item._id} value={item._id}>
-                {item.name} · {item.type}
-              </SelectItem>
-            ))}
-          </SelectContent>
-        </Select>
+        <SelectField
+          className="w-56"
+          value={applicationId}
+          onChange={(value) => setRequestedApplicationId(value as Id)}
+          placeholder="Application"
+          options={applications.map((item) => ({
+            value: item._id,
+            label: item.name,
+            hint: item.type,
+          }))}
+        />
 
         <SearchInput
           value={search}
@@ -251,32 +276,20 @@ export function TranslationsPage() {
           className="w-64"
         />
 
-        <Select
+        <SelectField
+          className="w-44"
           value={statusFilter}
-          onValueChange={(value) =>
+          onChange={(value) =>
             setStatusFilter(value as TranslationStatus | "ALL")
           }
-        >
-          <SelectTrigger className="w-44">
-            <SelectValue placeholder="All statuses" />
-          </SelectTrigger>
-          <SelectContent>
-            <SelectItem value="ALL">All statuses</SelectItem>
-            {TRANSLATION_STATUS_FLOW.map((status) => (
-              <SelectItem key={status} value={status}>
-                <span className="flex items-center gap-2">
-                  <span
-                    className={cn(
-                      "size-2 rounded-full",
-                      statusMeta(status).dot
-                    )}
-                  />
-                  {statusMeta(status).label}
-                </span>
-              </SelectItem>
-            ))}
-          </SelectContent>
-        </Select>
+          options={[
+            { value: "ALL", label: "All statuses" },
+            ...TRANSLATION_STATUS_FLOW.map((status) => ({
+              value: status,
+              label: statusMeta(status).label,
+            })),
+          ]}
+        />
 
         <div className="ml-auto flex items-center gap-2">
           {canImport ? (
@@ -290,7 +303,7 @@ export function TranslationsPage() {
             </Button>
           ) : null}
           {canCreate ? (
-            <Button size="sm" disabled>
+            <Button size="sm" onClick={() => setAddKeyOpen(true)}>
               <PlusIcon /> Add key
             </Button>
           ) : null}
@@ -439,6 +452,7 @@ export function TranslationsPage() {
                         isSaving={setCellValue.isPending}
                         commentCount={0}
                         onEdit={() => startEdit(row, code)}
+                        onExpand={() => startExpandedEdit(row, code)}
                         onSave={() => saveEdit(row, code)}
                         onCancel={() => setEditing(null)}
                         onApprove={() =>
@@ -486,6 +500,44 @@ export function TranslationsPage() {
           ) : null}
         </div>
       ) : null}
+
+      <AddKeyDialog
+        open={isAddKeyOpen}
+        onOpenChange={setAddKeyOpen}
+        application={application}
+        existingKeys={rows.map((row) => row.key)}
+        languageLabels={languageNames}
+      />
+
+      <CellEditDialog
+        open={Boolean(expanded)}
+        onOpenChange={(open) => (open ? undefined : setExpanded(null))}
+        translationKey={rows.find((row) => row._id === expanded?.keyId)}
+        languageCode={expanded?.languageCode}
+        languageName={
+          expanded
+            ? (languageNames.get(expanded.languageCode) ??
+              expanded.languageCode)
+            : undefined
+        }
+        sourceValue={
+          expanded &&
+          application &&
+          expanded.languageCode !== application.defaultLanguage
+            ? rows.find((row) => row._id === expanded.keyId)?.translations[
+                application.defaultLanguage
+              ]?.value
+            : undefined
+        }
+        sourceLanguageName={
+          application
+            ? (languageNames.get(application.defaultLanguage) ??
+              application.defaultLanguage)
+            : undefined
+        }
+        isSaving={setCellValue.isPending}
+        onSave={saveExpanded}
+      />
 
       <CellDrawer
         mode={drawer?.mode ?? null}

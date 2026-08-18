@@ -1,8 +1,15 @@
-import { ChevronDownIcon, PlusIcon, UsersIcon } from "lucide-react"
+import {
+  ChevronDownIcon,
+  PlusIcon,
+  Trash2Icon,
+  UserPlusIcon,
+  UsersIcon,
+} from "lucide-react"
 import { useState } from "react"
 import { toast } from "sonner"
 
 import { Can } from "@/components/common/can"
+import { ConfirmDialog } from "@/components/common/confirm-dialog"
 import { DataTable } from "@/components/common/data-table"
 import type { DataTableColumn } from "@/components/common/data-table"
 import { EmptyState } from "@/components/common/empty-state"
@@ -14,6 +21,7 @@ import { Checkbox } from "@/components/ui/checkbox"
 import {
   DropdownMenu,
   DropdownMenuContent,
+  DropdownMenuGroup,
   DropdownMenuLabel,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu"
@@ -22,6 +30,7 @@ import {
   useProjectMemberRows,
   useUpdateProjectMember,
 } from "@/features/project-members/hooks"
+import { InviteMemberDialog } from "./components/invite-member-dialog"
 import type { ProjectMemberRow } from "@/features/project-members/hooks"
 import { useActiveProjectId, usePermissions } from "@/features/session/hooks"
 import { formatDate, fullName } from "@/lib/format"
@@ -54,8 +63,39 @@ export function MembersPage() {
 
   const { rows, roles, isLoading, error, refetch } =
     useProjectMemberRows(projectId)
+  const canInvite = can(ENTITLEMENTS.PROJECT_MEMBERS, "create")
+  const canRemove = can(ENTITLEMENTS.PROJECT_MEMBERS, "delete")
+
   const updateMember = useUpdateProjectMember()
   const [pendingId, setPendingId] = useState<Id | null>(null)
+  const [isInviteOpen, setInviteOpen] = useState(false)
+  const [pendingRemove, setPendingRemove] = useState<ProjectMemberRow | null>(
+    null
+  )
+
+  /**
+   * Removal is a status change, not a delete. The member record carries the audit trail
+   * for everything they translated; deleting it would orphan that history, and the
+   * backend fails authorization on `status: 'removed'` immediately either way.
+   */
+  const removeMember = () => {
+    if (!pendingRemove) {
+      return
+    }
+
+    updateMember.mutate(
+      { id: pendingRemove.member._id, data: { status: "removed" } },
+      {
+        onSuccess: () => {
+          toast.success(
+            `${fullName(pendingRemove.user)} removed from the project`
+          )
+          setPendingRemove(null)
+        },
+        onError: (mutationError) => toast.error(errorMessage(mutationError)),
+      }
+    )
+  }
 
   const toggleRole = (row: ProjectMemberRow, role: Role) => {
     const next = toggleRoleId(row.member.roleIds, role._id)
@@ -133,39 +173,79 @@ export function MembersPage() {
       id: "manage",
       header: "Manage",
       align: "right",
-      cell: (row) =>
-        canManage ? (
-          <DropdownMenu>
-            <DropdownMenuTrigger
-              render={
-                <Button
-                  variant="outline"
-                  size="sm"
-                  disabled={pendingId === row.member._id}
-                >
-                  Roles <ChevronDownIcon />
-                </Button>
-              }
-            />
-            <DropdownMenuContent align="end" className="w-60">
-              <DropdownMenuLabel>Assign roles</DropdownMenuLabel>
-              {roles.map((role) => (
-                <label
-                  key={role._id}
-                  className="flex cursor-pointer items-center gap-2 rounded-md px-2 py-1.5 text-sm hover:bg-accent"
-                >
-                  <Checkbox
-                    checked={row.member.roleIds.includes(role._id)}
-                    onCheckedChange={() => toggleRole(row, role)}
-                  />
-                  <span className="flex-1">{role.roleName}</span>
-                </label>
-              ))}
-            </DropdownMenuContent>
-          </DropdownMenu>
-        ) : (
-          <span className="text-xs text-muted-foreground">read-only</span>
-        ),
+      cell: (row) => {
+        if (!canManage && !canRemove) {
+          return (
+            <span className="text-xs text-muted-foreground">read-only</span>
+          )
+        }
+
+        return (
+          <div className="flex items-center justify-end gap-1.5">
+            {canManage ? (
+              <DropdownMenu>
+                <DropdownMenuTrigger
+                  render={
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      disabled={pendingId === row.member._id}
+                    >
+                      Roles <ChevronDownIcon />
+                    </Button>
+                  }
+                />
+                <DropdownMenuContent align="end" className="w-64">
+                  {/* GroupLabel needs a Group ancestor — Base UI throws without one. */}
+                  <DropdownMenuGroup>
+                    <DropdownMenuLabel>Assign roles</DropdownMenuLabel>
+                    {roles.length === 0 ? (
+                      <p className="px-2 py-3 text-xs text-muted-foreground">
+                        This project has no roles yet.
+                      </p>
+                    ) : (
+                      roles.map((role) => (
+                        <label
+                          key={role._id}
+                          className="flex cursor-pointer items-start gap-2 rounded-md px-2 py-1.5 text-sm hover:bg-accent"
+                        >
+                          <Checkbox
+                            className="mt-0.5"
+                            checked={row.member.roleIds.includes(role._id)}
+                            onCheckedChange={() => toggleRole(row, role)}
+                          />
+                          <span className="min-w-0 flex-1">
+                            <span className="block truncate">
+                              {role.roleName}
+                            </span>
+                            {role.description ? (
+                              <span className="block truncate text-[11px] text-muted-foreground">
+                                {role.description}
+                              </span>
+                            ) : null}
+                          </span>
+                        </label>
+                      ))
+                    )}
+                  </DropdownMenuGroup>
+                </DropdownMenuContent>
+              </DropdownMenu>
+            ) : null}
+
+            {canRemove && row.member.status !== "removed" ? (
+              <Button
+                variant="ghost"
+                size="sm"
+                className="text-destructive"
+                aria-label={`Remove ${fullName(row.user)}`}
+                onClick={() => setPendingRemove(row)}
+              >
+                <Trash2Icon />
+              </Button>
+            ) : null}
+          </div>
+        )
+      },
     },
   ]
 
@@ -176,7 +256,7 @@ export function MembersPage() {
         description="A user can hold several roles here; their permissions are the union of all of them."
         actions={
           <Can entitlement={ENTITLEMENTS.PROJECT_MEMBERS} action="create">
-            <Button disabled>
+            <Button onClick={() => setInviteOpen(true)}>
               <PlusIcon /> Invite member
             </Button>
           </Can>
@@ -195,12 +275,36 @@ export function MembersPage() {
             title="No members yet"
             body="Invite someone to give them access to this project."
             action={
-              <Button variant="outline" size="sm" onClick={() => refetch()}>
-                Refresh
-              </Button>
+              canInvite ? (
+                <Button size="sm" onClick={() => setInviteOpen(true)}>
+                  <UserPlusIcon /> Invite member
+                </Button>
+              ) : (
+                <Button variant="outline" size="sm" onClick={() => refetch()}>
+                  Refresh
+                </Button>
+              )
             }
           />
         }
+      />
+
+      <InviteMemberDialog
+        open={isInviteOpen}
+        onOpenChange={setInviteOpen}
+        roles={roles}
+        existingMembers={rows.map((row) => row.member)}
+      />
+
+      <ConfirmDialog
+        open={Boolean(pendingRemove)}
+        onOpenChange={(open) => (open ? undefined : setPendingRemove(null))}
+        title={`Remove ${fullName(pendingRemove?.user)}?`}
+        description="They lose access to this project immediately. Their translation history is kept, and they can be invited again later."
+        confirmLabel="Remove member"
+        destructive
+        isPending={updateMember.isPending}
+        onConfirm={removeMember}
       />
     </div>
   )
