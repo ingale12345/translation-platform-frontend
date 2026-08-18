@@ -91,6 +91,32 @@ enumerate accounts.
 - **Bootstrap** — the shell picks a project before rendering any page, so no page has to
   handle "no project yet". Falls through to an explicit *No project access* state.
 
+### 3.2b Projects — ✅ built
+
+A platform admin's home, and the answer to "where do I add a project?".
+
+**Built from `GET /me/memberships`, not `GET /projects`** — that endpoint already answers
+the harder question: which projects can this person actually *enter*, whether through an
+organization-scoped role or an explicit membership. Listing projects would show a manager
+rows they cannot open.
+
+| Element | Behaviour |
+|---|---|
+| Card per project | Name, code, description, and roll-up stats: apps · members · languages |
+| Manager | Avatar and name of whoever holds `PROJECT_MANAGER`. **"No manager assigned" is called out in amber** — an unmanaged project cannot be staffed, so it will quietly stay empty |
+| Open | Switches the active project; the existing screens take over from there |
+| Manager button | Assigns someone as manager. Adds the role to an existing membership rather than replacing it, so a developer taking over a project keeps their other roles |
+| New project | Gated on `PROJECTS:create`, which only an organization-scoped role grants |
+| Access note | "org access" when the user reached the project through the organization tier, otherwise the role names |
+
+Three page-scoped queries feed every card rather than one per card — with a dozen projects
+that is 3 requests instead of 36.
+
+**Why creating a project is more than an insert:** the server gives the new project its own
+copy of the system roles and makes the creator its manager. Without that, a new project has
+no roles to grant anything and no members to hold them, so it is invisible to everyone
+including whoever created it — which is exactly how it behaved before.
+
 ### 3.3 Translations — ✅ built
 
 The signature surface. Keys down the side, languages across the top.
@@ -409,12 +435,13 @@ console.
 | 14 | Bulk status endpoint | Approving a release without clicking every cell | **done** — `POST /translations/bulk-status` |
 | 15 | Translation history actually written | The history drawer had no data to show | **done** — `hooks/translation-history.ts` |
 | 16 | `createdBy` / `createdAt` on every write | Comment authorship, so a chat can say who said what | **done** — `hooks/stamp-audit.ts` |
-| 17 | Permission enforcement on the CRUD services | Any signed-in user can currently patch any record they can name | open — **security** |
+| 17 | Permission enforcement on the CRUD services | Any signed-in user could patch any record they could name | **done** — `hooks/authorize.ts` |
 | 18 | Socket client in the console | Live comments without polling | open — the server already publishes per project |
+| 19 | Organization-level authority | Nobody could create a project; a new project was invisible | **done** — `organization-members` + role `scope` |
+| 20 | Project bootstrap | A created project had no roles and no manager | **done** — `hooks/bootstrap-project.ts` |
+| 21 | Install seed | A fresh installation had nobody who could create anything | **done** — `pnpm seed:install` |
 
-Item 4 is the highest-leverage remaining feature work; **item 17 is the most important
-overall** — the console hides controls a role may not use, which is presentation, not
-protection.
+Item 4 is the highest-leverage remaining feature work.
 
 ### Fixed since the console first ran
 
@@ -431,6 +458,9 @@ Defects found by running the app against real data — all backend, all silent:
 | `users` query resolver scoped `_id` to the caller | Members table showed "Unknown user", audit log had no actors, invite-by-email found nobody | Scoped to users sharing a project — `common/utils/visible-users.ts` |
 | `DropdownMenuLabel` outside a `DropdownMenuGroup` | Profile menu crashed the page | Wrapped in `DropdownMenuGroup` (Base UI's `GroupLabel` reads a context the group provides) |
 | Base UI `Select.Value` renders the raw value | Dropdowns showed database ids instead of names | `components/common/select-field.tsx` renders the option's label |
+| Authority existed only inside a project | Nobody could create a project, and a created one was invisible to everyone including its author | Organization-scoped roles + `organization-members` |
+| Services authenticated but never authorized | Any signed-in user could patch any record in any project | `hooks/authorize.ts` on every CRUD service |
+| `visibleUserIds` scoped by shared project | A platform admin with no project membership could see only themselves, so could not staff a project | Organization members see the whole directory |
 
 The first two are worth remembering as a pair: both were *silent*. A query that matches
 nothing looks identical to a project with no data, so the console rendered empty states

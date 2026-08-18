@@ -33,6 +33,7 @@ export type ApplicationStatus = "active" | "inactive" | "archived"
 
 export type ApplicationType =
   | "react"
+  | "python"
   | "flutter"
   | "android"
   | "ios"
@@ -139,6 +140,32 @@ export type ProjectCreate = Omit<Project, keyof Entity>
 export type ProjectPatch = Partial<ProjectCreate>
 
 /* -------------------------------------------------------------------------- *
+ * Organization members — the platform-admin tier
+ * -------------------------------------------------------------------------- */
+
+/**
+ * Membership of the organization itself.
+ *
+ * The roles here apply to every project in the organization, including ones created
+ * later. It is what makes a platform admin able to open a project nobody added them to,
+ * and why creating a project no longer produces something invisible.
+ */
+export interface OrganizationMember extends Entity {
+  organizationId: Id
+  userId: Id
+  /** Organization-scoped roles only. */
+  roleIds: Id[]
+  status: ProjectMemberStatus
+  invitedBy?: Id
+  invitationAcceptedAt?: string
+  joinedAt?: string
+  lastAccessAt?: string
+}
+
+export type OrganizationMemberCreate = Omit<OrganizationMember, keyof Entity>
+export type OrganizationMemberPatch = Partial<OrganizationMemberCreate>
+
+/* -------------------------------------------------------------------------- *
  * Project members
  * -------------------------------------------------------------------------- */
 
@@ -167,13 +194,24 @@ export interface RoleEntitlementPermission {
   permissions: RolePermissions
 }
 
+/**
+ * Where a role's grants apply.
+ *
+ * `organization` roles carry no `projectId` and apply to **every** project in the
+ * organization — that is what a platform admin holds. `project` roles are materialised
+ * per project, so a manager can rewrite their own project's matrix in isolation.
+ */
+export type RoleScope = "organization" | "project"
+
 export interface Role extends Entity {
   organizationId: Id
-  projectId: Id
+  scope: RoleScope
+  /** Absent on organization-scoped roles. */
+  projectId?: Id
   roleCode: string
   roleName: string
   description?: string
-  /** System roles are seeded per project and cannot be edited or deleted. */
+  /** System roles ship with the platform; their code and scope cannot be changed. */
   isSystem: boolean
   status: RoleStatus
   entitlementPermissions: RoleEntitlementPermission[]

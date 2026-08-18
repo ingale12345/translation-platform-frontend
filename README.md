@@ -157,8 +157,16 @@ hierarchy.
 
 Permissions come from **one place**: `GET /me/permissions?projectId=…`. The server does
 the merge described in [`../translation-platform/docs/RBAC.md`](../translation-platform/docs/RBAC.md)
-— union across the member's roles, masked by each entitlement's `applicablePermissions` —
 and returns a flat matrix. The client only reads it, so the two can never disagree.
+
+Authority has **two tiers**, and the merge unions them:
+
+- **Organization-scoped roles** apply to every project, including ones created later — a
+  platform admin holds one of these and needs no membership in any project.
+- **Project-scoped roles** apply to their own project only.
+
+`GET /me/memberships` reports which tier let you in as `via`, and the Projects screen shows
+"org access" rather than a role name for the organization tier.
 
 ```tsx
 // Hide a control
@@ -220,6 +228,7 @@ exist yet, and say so on the page rather than failing silently.
 | Screen | State |
 |---|---|
 | Login | ✅ |
+| Projects — every project you can open, create, assign a manager | ✅ |
 | App shell — sidebar, topbar, project switcher, permission peek | ✅ |
 | Dashboard — coverage, status roll-up, recent activity | ✅ |
 | Translations — grid, inline + dialog editing, **bulk status**, chat, per-cell history | ✅ |
@@ -254,6 +263,8 @@ dependencies, and the known limitations of the translation grid.
   `useCellComments` are the only entry points, and both require a key *and* a language.
   Both collections grow a row per cell per event, so an unfiltered read is unbounded — it
   looks fine in development and degrades every day in production.
+- **The server authorizes too.** Hiding a control is presentation; the API re-checks every
+  request and answers `403`. If a screen 403s, the fix is the role, not the client.
 - **Bulk operations belong on the server.** `useBulkStatus` sends one request; the ladder,
   the permission and the eligibility rules live in `POST /translations/bulk-status`. Doing
   it as N patches from the browser would be N chances to fail halfway and a second copy of

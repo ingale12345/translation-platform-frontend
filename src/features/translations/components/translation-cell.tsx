@@ -37,6 +37,7 @@ interface TranslationCellProps {
   canApprove: boolean
   canPublish: boolean
   canComment: boolean
+  canViewHistory: boolean
   isSaving: boolean
   commentCount: number
   /** Inline edit — used for short values. */
@@ -67,6 +68,7 @@ export function TranslationCell({
   canApprove,
   canPublish,
   canComment,
+  canViewHistory,
   isSaving,
   commentCount,
   onEdit,
@@ -216,9 +218,11 @@ export function TranslationCell({
                 </CellAction>
               ) : null}
 
-              <CellAction label="History" onClick={onHistory}>
-                <ClockIcon className="size-3.5" />
-              </CellAction>
+              {canViewHistory ? (
+                <CellAction label="History" onClick={onHistory}>
+                  <ClockIcon className="size-3.5" />
+                </CellAction>
+              ) : null}
 
               {canComment || commentCount > 0 ? (
                 <CellAction

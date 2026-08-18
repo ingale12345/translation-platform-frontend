@@ -31,6 +31,9 @@ import type {
   Notification,
   NotificationCreate,
   NotificationPatch,
+  OrganizationMember,
+  OrganizationMemberCreate,
+  OrganizationMemberPatch,
   Organization,
   OrganizationCreate,
   OrganizationPatch,
@@ -84,6 +87,18 @@ export const projectsService = createResourceService<
 /* -------------------------------------------------------------------------- *
  * Access control
  * -------------------------------------------------------------------------- */
+
+/**
+ * Membership of the organization itself — the platform-admin tier.
+ *
+ * Roles held here apply to every project, including ones created later, which is what
+ * lets a platform admin open a project nobody added them to.
+ */
+export const organizationMembersService = createResourceService<
+  OrganizationMember,
+  OrganizationMemberCreate,
+  OrganizationMemberPatch
+>("organization-members")
 
 export const projectMembersService = createResourceService<
   ProjectMember,

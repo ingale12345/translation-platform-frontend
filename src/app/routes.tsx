@@ -89,6 +89,13 @@ export const routeTree = rootRoute.addChildren([
       )
     ),
     page(
+      "/projects",
+      lazyPage(
+        () => import("@/features/projects/projects-page"),
+        (module) => module.ProjectsPage
+      )
+    ),
+    page(
       "/translations",
       lazyPage(
         () => import("@/features/translations/translations-page"),

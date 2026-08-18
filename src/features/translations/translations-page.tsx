@@ -65,6 +65,9 @@ export function TranslationsPage() {
   const canComment = can(ENTITLEMENTS.TRANSLATION_COMMENTS, "create")
   const canImport = can(ENTITLEMENTS.IMPORT, "create")
   const canExport = can(ENTITLEMENTS.EXPORT, "download")
+  // Cell history lives in `translation-history`, which the server guards with AUDIT_LOGS.
+  // An external reviewer has comments but not the audit trail.
+  const canViewHistory = can(ENTITLEMENTS.AUDIT_LOGS, "read")
 
   const applicationsQuery = useAllApplications(
     {
@@ -529,6 +532,7 @@ export function TranslationsPage() {
                         canApprove={canApprove}
                         canPublish={canPublish}
                         canComment={canComment}
+                        canViewHistory={canViewHistory}
                         isSaving={setCellValue.isPending}
                         commentCount={
                           commentCounts.get(`${row._id}:${code}`) ?? 0
@@ -632,6 +636,7 @@ export function TranslationsPage() {
           drawer ? languageNames.get(drawer.cell.languageCode) : undefined
         }
         canComment={canComment}
+        canViewHistory={canViewHistory}
         onModeChange={(mode) =>
           setDrawer((current) => (current ? { ...current, mode } : current))
         }

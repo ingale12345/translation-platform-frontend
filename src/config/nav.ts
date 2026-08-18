@@ -1,5 +1,6 @@
 import {
   BoxesIcon,
+  FolderKanbanIcon,
   DownloadIcon,
   FileCode2Icon,
   KeyRoundIcon,
@@ -46,6 +47,12 @@ export const NAV: NavGroup[] = [
         label: "Dashboard",
         icon: LayoutDashboardIcon,
         entitlement: ENTITLEMENTS.DASHBOARD,
+      },
+      {
+        to: "/projects",
+        label: "Projects",
+        icon: FolderKanbanIcon,
+        entitlement: ENTITLEMENTS.PROJECTS,
       },
       {
         to: "/translations",

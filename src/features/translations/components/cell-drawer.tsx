@@ -21,6 +21,8 @@ interface CellDrawerProps {
   languageCode: string | undefined
   languageName?: string
   canComment: boolean
+  /** `AUDIT_LOGS:read`. Without it the history endpoint 403s, so the tab is not offered. */
+  canViewHistory: boolean
   onModeChange: (mode: CellDrawerMode) => void
   onClose: () => void
 }
@@ -42,6 +44,7 @@ export function CellDrawer({
   languageCode,
   languageName,
   canComment,
+  canViewHistory,
   onModeChange,
   onClose,
 }: CellDrawerProps) {
@@ -75,27 +78,29 @@ export function CellDrawer({
           ) : null}
         </SheetHeader>
 
-        <div
-          className="flex shrink-0 gap-1 border-b px-2 py-1.5"
-          role="tablist"
-          aria-label="Cell detail"
-        >
-          <Tab
-            isActive={mode === "comments"}
-            onClick={() => onModeChange("comments")}
-            icon={MessagesSquareIcon}
-            label="Conversation"
-          />
-          <Tab
-            isActive={mode === "history"}
-            onClick={() => onModeChange("history")}
-            icon={ClockIcon}
-            label="History"
-          />
-        </div>
+        {canViewHistory ? (
+          <div
+            className="flex shrink-0 gap-1 border-b px-2 py-1.5"
+            role="tablist"
+            aria-label="Cell detail"
+          >
+            <Tab
+              isActive={mode === "comments"}
+              onClick={() => onModeChange("comments")}
+              icon={MessagesSquareIcon}
+              label="Conversation"
+            />
+            <Tab
+              isActive={mode === "history"}
+              onClick={() => onModeChange("history")}
+              icon={ClockIcon}
+              label="History"
+            />
+          </div>
+        ) : null}
 
         <div className="min-h-0 flex-1 overflow-y-auto">
-          {mode === "history" ? (
+          {mode === "history" && canViewHistory ? (
             <HistoryTimeline
               key={`history:${cellKey}`}
               translationKeyId={translationKey?._id}

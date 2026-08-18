@@ -155,10 +155,14 @@ export function RoleFormDialog({
       {
         organizationId,
         projectId,
+        // Roles created here always belong to this project. Organization-scoped roles
+        // apply to every project at once, so they are seeded at install time rather than
+        // authored from inside one project's settings.
+        scope: "project" as const,
         roleName: values.roleName,
         roleCode: values.roleCode,
         description: values.description || undefined,
-        // A role created here is never a system role — those are seeded per project and
+        // A role created here is never a system role — those ship with the platform and
         // are deliberately immutable.
         isSystem: false,
         status: "active",
