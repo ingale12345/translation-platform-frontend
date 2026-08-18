@@ -8,7 +8,9 @@ export default defineConfig({
   plugins: [react(), tailwindcss()],
   resolve: {
     alias: {
-      "@": path.resolve(__dirname, "./src"),
+      // `import.meta.dirname` rather than `__dirname`: this config is ESM, and Vite's
+      // native config loader does not provide the CommonJS globals.
+      "@": path.resolve(import.meta.dirname, "./src"),
     },
   },
 })
