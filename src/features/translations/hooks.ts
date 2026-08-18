@@ -4,13 +4,16 @@ import { useMemo } from "react"
 import type { ApiError } from "@/lib/http/errors"
 import { contains } from "@/lib/http/params"
 import { createResourceHooks } from "@/lib/query/resource-hooks"
+import { translationHistoryKeys } from "@/features/translation-history/hooks"
 import { translationCommentsService, translationKeysService } from "@/services"
+import { translationOperationsService } from "@/services/translations.service"
 import type { Id, ListQuery } from "@/types/api"
 import type {
   TranslationKey,
   TranslationStatus,
   TranslationValue,
 } from "@/types/models"
+import type { BulkStatusRequest, BulkStatusResult } from "@/types/operations"
 
 export const translationKeyQueries = createResourceHooks(translationKeysService)
 
@@ -220,10 +223,52 @@ export const useCoverage = (
     return coverage
   }, [rows, languageCodes])
 
-/** Comments on one cell, newest last so the thread reads top to bottom. */
+/* -------------------------------------------------------------------------- *
+ * Bulk status
+ * -------------------------------------------------------------------------- */
+
+/**
+ * Moves many cells to one status in a single request.
+ *
+ * The server owns the rules — the ladder, the permission, and which cells are eligible —
+ * and reports back what it skipped. Doing it here instead, as N individual patches, would
+ * be N round trips, N chances to fail halfway, and a second copy of the transition rules
+ * to keep in step with the backend.
+ */
+export const useBulkStatus = () => {
+  const queryClient = useQueryClient()
+
+  return useMutation<BulkStatusResult, ApiError, BulkStatusRequest>({
+    mutationFn: (request) => translationOperationsService.bulkStatus(request),
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: translationKeyKeys.all })
+      // Every moved cell wrote a history row, so any open timeline is now stale.
+      void queryClient.invalidateQueries({
+        queryKey: translationHistoryKeys.all,
+      })
+    },
+  })
+}
+
+/* -------------------------------------------------------------------------- *
+ * Cell conversation
+ * -------------------------------------------------------------------------- */
+
+/**
+ * Comments on **one cell**, oldest first so the thread reads top to bottom like a chat.
+ *
+ * Scoped to the key *and* the language on purpose: a thread is about one translation, and
+ * loading a project\'s entire comment history to filter it in the browser would grow
+ * without bound while showing the user a dozen rows.
+ *
+ * `refetchInterval` gives the thread a live feel while it is open. The server already
+ * publishes comment events to the project channel, so this becomes a socket subscription
+ * the moment the console opens one — see docs/UI_PLAN.md.
+ */
 export const useCellComments = (
   translationKeyId: Id | undefined,
-  languageCode: string | undefined
+  languageCode: string | undefined,
+  options?: { live?: boolean }
 ) =>
   useTranslationCommentsQuery(
     {
@@ -232,7 +277,39 @@ export const useCellComments = (
         languageCode: languageCode ?? "",
       },
       sortAsc: "createdAt",
-      limit: 100,
+      limit: 200,
     },
-    { enabled: Boolean(translationKeyId && languageCode) }
+    {
+      enabled: Boolean(translationKeyId && languageCode),
+      refetchInterval: options?.live ? 8000 : false,
+    }
   )
+
+/**
+ * How many comments each cell on the current page carries, so the grid can badge them.
+ *
+ * Scoped to the keys actually on screen and to the id fields alone — a page of 50 keys is
+ * a bounded query, where "every comment in the project" is not. Without it the badge
+ * would be permanently zero, which is worse than absent.
+ */
+export const useCommentCounts = (translationKeyIds: Id[]) => {
+  const query = useTranslationCommentsQuery(
+    {
+      where: { translationKeyId: { $in: translationKeyIds } },
+      select: ["translationKeyId", "languageCode", "resolved"],
+      limit: 500,
+    },
+    { enabled: translationKeyIds.length > 0 }
+  )
+
+  return useMemo(() => {
+    const counts = new Map<string, number>()
+
+    for (const comment of query.data?.data ?? []) {
+      const key = `${comment.translationKeyId}:${comment.languageCode}`
+      counts.set(key, (counts.get(key) ?? 0) + 1)
+    }
+
+    return counts
+  }, [query.data])
+}

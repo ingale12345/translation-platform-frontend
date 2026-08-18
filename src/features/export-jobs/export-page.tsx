@@ -1,4 +1,5 @@
 import { DownloadIcon, InfoIcon } from "lucide-react"
+import { useState } from "react"
 
 import { DataTable } from "@/components/common/data-table"
 import type { DataTableColumn } from "@/components/common/data-table"
@@ -7,6 +8,7 @@ import { PageHeader } from "@/components/common/page-header"
 import { Alert, AlertDescription } from "@/components/ui/alert"
 import { Button } from "@/components/ui/button"
 import { useAllApplications } from "@/features/applications/hooks"
+import { ExportDialog } from "@/features/export-jobs/components/export-dialog"
 import { useExportJobs } from "@/features/export-jobs/hooks"
 import { JobStatusBadge } from "@/features/import-jobs/components/job-status-badge"
 import { useActiveProjectId, usePermissions } from "@/features/session/hooks"
@@ -15,13 +17,15 @@ import { ENTITLEMENTS } from "@/lib/rbac"
 import type { ExportJob } from "@/types/models"
 
 /**
- * Export job history.
+ * Export job history, and the button that starts a new one.
  *
- * Like Import, starting a job is withheld: `POST /export-jobs` records one, but no worker
- * renders the file, so the download would never appear. Item 6 in docs/UI_PLAN.md §5.
+ * `POST /translations/export` renders the file synchronously and returns it in the
+ * response, which the browser saves. There is no artifact URL to protect, because there
+ * is no artifact at rest — an export bundle is project content, and the round trip that
+ * produces it is already authenticated.
  *
- * When it does land, the finished file must be served from an authenticated endpoint
- * rather than a plain link — an export bundle is project content, not a public asset.
+ * Every export applies one rule: only approved and published cells contribute a value.
+ * The dialog reports how many were withheld, so an unexpectedly thin file explains itself.
  */
 export function ExportPage() {
   const projectId = useActiveProjectId()
@@ -36,6 +40,7 @@ export function ExportPage() {
     { where: { projectId: projectId ?? "" } },
     { enabled: Boolean(projectId) }
   )
+  const [isDialogOpen, setDialogOpen] = useState(false)
   const applicationName = new Map(
     (applicationsQuery.data ?? []).map((application) => [
       application._id,
@@ -117,23 +122,21 @@ export function ExportPage() {
         description="Generate translation bundles in an application's configured format."
         actions={
           canCreate ? (
-            <Button disabled>
+            <Button onClick={() => setDialogOpen(true)}>
               <DownloadIcon /> New export
             </Button>
           ) : null
         }
       />
 
-      {canCreate ? (
-        <Alert className="mb-4">
-          <InfoIcon />
-          <AlertDescription>
-            Starting an export is not available yet. The API records export jobs
-            but nothing renders the file, so a job started here would never
-            produce a download.
-          </AlertDescription>
-        </Alert>
-      ) : null}
+      <Alert className="mb-4">
+        <InfoIcon />
+        <AlertDescription>
+          Exports include <strong>approved and published</strong> translations
+          only. Anything still in draft or review is written as an empty value,
+          so an unreviewed string can never reach a release.
+        </AlertDescription>
+      </Alert>
 
       <DataTable
         columns={columns}
@@ -149,6 +152,8 @@ export function ExportPage() {
           />
         }
       />
+
+      <ExportDialog open={isDialogOpen} onOpenChange={setDialogOpen} />
     </div>
   )
 }

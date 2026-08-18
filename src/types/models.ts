@@ -281,6 +281,14 @@ export interface TranslationHistoryEntry extends Entity {
   action: TranslationHistoryAction
   changedBy: Id
   changedAt: string
+  /** Why the change was made — set by bulk operations, blank for a single edit. */
+  comment?: string
+  /**
+   * Free-form detail the server attached. `oldStatus` / `newStatus` are always present
+   * when the status moved, which is what lets the timeline render "Review → Approved"
+   * rather than a bare "updated".
+   */
+  metadata?: Record<string, string>
 }
 
 export interface TranslationComment extends Entity {

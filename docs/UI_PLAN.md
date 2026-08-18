@@ -100,11 +100,47 @@ The signature surface. Keys down the side, languages across the top.
 | Toolbar | Application select · debounced key search · status filter · Add key · Import / Export (all permission-gated) |
 | Coverage strip | % APPROVED-or-PUBLISHED per language, **for the loaded page** |
 | Grid | Sticky header and key column; each cell has a status rail, value, chip and hover actions |
+| Selection | Checkbox per key and in the header. Cleared on any filter or page change — a selection is a set of ids from the previous result set, and carrying it over would let a bulk action hit rows the user can no longer see |
+| Bulk bar | Replaces the toolbar while a selection is live: Send to review · Approve · Publish, each gated by the same permission as its single-cell equivalent |
 | Cell edit | Click the text to edit. Short values (≤80 chars) edit **inline** — `⏎` saves, `esc` cancels. Longer values open the **dialog editor**, with the source string beside them for reference, because a two-row box is the wrong shape for a paragraph. The pencil always opens the dialog. Status advances `MISSING → DRAFT`, `existing → REVIEW` |
-| Cell actions | Approve (`DRAFT`/`REVIEW` only), Publish (`APPROVED` only), History, Comments |
-| Drawer | Right sheet: cell history, or a comment thread |
+| Cell actions | Approve (`DRAFT`/`REVIEW` only), Publish (`APPROVED` only), History, Comments (with a live count) |
+| Drawer | Right sheet with two tabs — **Conversation** and **History** — both scoped to the one cell |
 | Add key | Dialog creating the key `MISSING` in every supported language, so it lands in a translator's queue rather than shipping placeholder text |
 | Read-only banner | Shown when the role lacks `TRANSLATIONS:update`, so a translator understands why nothing is editable |
+
+#### Bulk status
+
+Approving a release one cell at a time is four hundred clicks for a hundred keys across
+four languages. The bulk dialog takes the ticked keys and asks the one question a toolbar
+button cannot: **which languages** — approving a key rarely means approving every locale
+of it.
+
+It then shows what the server refused to do, grouped by reason. A run that silently moves
+37 of 40 cells is the failure mode this design is against: the count would be right and
+the user would have no way to find the other three. Reasons are *no translation yet*,
+*already at that status*, *not allowed from its current status*, *language not on this key*.
+
+The note field is recorded on every history row the run creates, so "why did forty cells
+move at once" has an answer in the timeline.
+
+#### Conversation — chat, not a comment list
+
+Laid out like a messaging app because that is how it is used: a translator and a reviewer
+going back and forth about one string. Your messages on the right, everyone else's on the
+left with name and avatar; consecutive messages from one person are grouped so a
+back-and-forth is not a wall of repeated headers; day dividers; `⏎` sends.
+
+It polls while open. The server already publishes comment events to `project:{projectId}`,
+so this becomes a socket subscription without touching the component — the remaining work
+is a Feathers socket client alongside the axios instance.
+
+#### History — who changed what, when
+
+A timeline per cell: actor, action verb, relative time (exact on hover), the status
+transition as two chips, and a red/green diff of the value. Bulk notes appear in quotes.
+
+Both panels are keyed by cell, so switching cells remounts them rather than showing the
+previous cell's data for a frame.
 
 **Known limits, all backend-dependent:**
 
@@ -113,8 +149,7 @@ The signature surface. Keys down the side, languages across the top.
 | Status filter runs client-side | Filters the current page, not the project. Labelled as such in the UI. | Backend `GET /translation-keys/by-status` or a denormalised `statusSummary` field |
 | Search matches `key` only, not values | Cannot find "the key whose Japanese says X" | Backend `GET /translation-keys/search?q=` across the nested map |
 | Cell writes send the whole `translations` object | Two people editing *different languages of the same key* within one round-trip can clobber each other | `PATCH /translation-keys/:id/cell`, or a version field for optimistic concurrency |
-| Comment counts are not shown per cell | The badge always reads 0 until the drawer is opened | Backend aggregate, or a per-page comment-count query |
-| Import / Export buttons are inert | Gated and visible, but disabled | §3.8 and §3.9 — both need backend workers |
+| Import button is inert | Gated and visible, but disabled | §3.8 — needs a backend upload endpoint |
 
 ### 3.4 Roles — ✅ built
 
@@ -222,18 +257,23 @@ record.
   endpoint or a signed-URL flow, plus the `POST /import-jobs/:id/preview` and `/apply`
   methods that `docs/API.md` lists as planned.
 
-### 3.9 Export — job history ✅ · start blocked
+### 3.9 Export — ✅ built
 
-**Built:** the job history table — file, application, language, status, key counts, and
-the failure reason when there is one.
+**Built:** the job history table, and the dialog that starts one. `POST
+/translations/export` renders the file synchronously and returns it in the response body;
+the browser saves it from a blob URL.
 
-**Not built, deliberately:** starting an export, for the same reason as Import — no worker
-renders the file, so the download would never appear.
+Returning the file rather than a URL is the design decision worth keeping: an export bundle
+is project content, so there is no artifact at rest to protect, no signed URL to expire,
+and nothing that goes stale inside a sandboxed embed.
 
-**When it lands:** pick application, languages, template and a status floor (default:
-published only), then poll to `COMPLETED`. Serve the finished artifact from an
-authenticated endpoint — an export bundle is project content, not a public asset, and a
-plain link would also be inert inside a sandboxed embed.
+**The rule the dialog exists to make visible:** only `APPROVED` and `PUBLISHED` cells
+contribute a value; everything else exports empty. That is surprising the first time it
+happens — a translator sees their work missing from the file — so the result panel reports
+how many values were *withheld* and says to approve them and export again. A file that is
+thinner than expected explains itself instead of looking like data loss.
+
+**Still open:** a background queue, once a project outgrows what one request can render.
 
 ### 3.10 Templates — ✅ built
 
@@ -358,23 +398,35 @@ console.
 | 3 | Real `dataSchema`s for the nine stub services | Any create through those services | **done** |
 | 4 | Server-side status aggregate (or a denormalised `statusSummary`) | Translations status filter beyond one page · exact dashboard figures · archive confirm counts | open |
 | 5 | Search across translated values | Finding a key by its content | open |
-| 6 | Export render worker | Starting an export; serve the artifact from an authenticated endpoint | open |
+| 6 | Export renderer | Starting an export | **done** — `POST /translations/export` |
 | 7 | File upload + parse for import | Import wizard | open |
 | 8 | Server-minted API tokens, plaintext returned once | Creating API tokens | open |
 | 9 | Activity logs actually written | Audit Log has UI but no data | open |
 | 10 | System roles seeded per project | A fresh project has no roles at all | open |
 | 11 | Single-cell patch, or optimistic concurrency on `translations` | Concurrent cell edits clobbering each other | open |
 | 12 | Refresh tokens | Sessions end at JWT expiry (1 day) | open |
-| 13 | Template render engine matching `lib/template-preview.ts` tokens | The preview is only truthful if the worker agrees | open |
+| 13 | Template render engine matching `lib/template-preview.ts` tokens | The preview is only truthful if the renderer agrees | **done** — both sides substitute `$key` in one pass |
+| 14 | Bulk status endpoint | Approving a release without clicking every cell | **done** — `POST /translations/bulk-status` |
+| 15 | Translation history actually written | The history drawer had no data to show | **done** — `hooks/translation-history.ts` |
+| 16 | `createdBy` / `createdAt` on every write | Comment authorship, so a chat can say who said what | **done** — `hooks/stamp-audit.ts` |
+| 17 | Permission enforcement on the CRUD services | Any signed-in user can currently patch any record they can name | open — **security** |
+| 18 | Socket client in the console | Live comments without polling | open — the server already publishes per project |
 
-Item 4 is the highest-leverage: it unblocks three screens at once.
+Item 4 is the highest-leverage remaining feature work; **item 17 is the most important
+overall** — the console hides controls a role may not use, which is presentation, not
+protection.
 
 ### Fixed since the console first ran
 
-Four defects found by running the app against real data, all backend:
+Defects found by running the app against real data — all backend, all silent:
 
 | Defect | Symptom in the console | Fix |
 |---|---|---|
+| Nothing ever wrote `translation-history` | The history drawer said "no history yet" forever, however much you edited | `hooks/translation-history.ts` diffs each write cell by cell |
+| Nothing ever set `createdBy` / `createdAt` | Comments had no author and no timestamp, so a chat layout was impossible | `hooks/stamp-audit.ts`, applied to all 17 services |
+| Seeded export templates emitted invalid files | A row pattern ending in `,` plus a `,` separator produced double commas and a trailing comma before `}` | Fixed in `dev/templates.json`; the renderer now escapes per file type |
+| Template tokens disagreed | Seeds used `$key`, the console preview used `{key}` — one of them would always fail to substitute | Both now accept either, in a single pass |
+| Every event published to every authenticated connection | A socket client would receive other projects' data | `channels.ts` publishes to `project:{projectId}` |
 | ObjectId strings not coerced inside `$in` / `$nin` | Every join returned empty: no roles, no project names, an empty sidebar for **every** role including super admin | `hooks/coerce-object-ids.ts` |
 | `users` query resolver scoped `_id` to the caller | Members table showed "Unknown user", audit log had no actors, invite-by-email found nobody | Scoped to users sharing a project — `common/utils/visible-users.ts` |
 | `DropdownMenuLabel` outside a `DropdownMenuGroup` | Profile menu crashed the page | Wrapped in `DropdownMenuGroup` (Base UI's `GroupLabel` reads a context the group provides) |

@@ -8,19 +8,28 @@ import type {
  * Renders a sample file from a template's config, so the editor shows the shape of the
  * output instead of leaving the author to imagine it from four separate text fields.
  *
- * IMPORTANT: this is a *client-side approximation*. The authoritative renderer is the
- * export worker on the backend, which does not exist yet (see docs/UI_PLAN.md §5). The
- * token set below is the contract the two must agree on — if the worker adopts different
- * tokens, this preview becomes a lie, so change both together.
+ * The authoritative renderer is `src/services/translations/export.class.ts` on the
+ * backend. This file must substitute the same tokens the same way — if the two disagree,
+ * the preview stops describing the file it claims to preview, so change both together.
+ *
+ * The one thing this cannot show is escaping: the server escapes values per file type
+ * (quotes in JSON, newlines in .properties), and the sample strings here are chosen to
+ * need none.
  */
 
-/** Tokens a template row may reference. */
+/**
+ * Tokens a template row may reference.
+ *
+ * `$key` is canonical — it is what every seeded template uses. `{key}` is accepted as an
+ * alias because the console shipped with braces, and quietly failing to substitute a
+ * template someone authored against this preview would be worse than two spellings.
+ */
 export const TEMPLATE_TOKENS = [
-  { token: "{key}", description: "The translation key" },
-  { token: "{value}", description: "The translated string" },
-  { token: "{namespace}", description: "The key's namespace" },
-  { token: "{language}", description: "Language code, e.g. ja" },
-  { token: "{index}", description: "0-based row number" },
+  { token: "$key", description: "The translation key" },
+  { token: "$value", description: "The translated string" },
+  { token: "$namespace", description: "The key's namespace" },
+  { token: "$language", description: "Language code, e.g. ja" },
+  { token: "$index", description: "0-based row number" },
 ] as const
 
 interface SampleRow {
@@ -54,13 +63,27 @@ const EMPTY_ROW: SampleRow = {
   language: "en",
 }
 
+const TOKEN =
+  /\$(key|value|namespace|language|index)\b|\{(key|value|namespace|language|index)\}/g
+
 const substitute = (pattern: string, row: SampleRow, index: number): string =>
-  pattern
-    .replaceAll("{key}", row.key)
-    .replaceAll("{value}", row.value)
-    .replaceAll("{namespace}", row.namespace)
-    .replaceAll("{language}", row.language)
-    .replaceAll("{index}", String(index))
+  // One pass, not five sequential replaces: `welcome_message` below contains `{name}`,
+  // and a second pass over an already-substituted string would treat the application's
+  // own placeholder as a template token.
+  pattern.replace(TOKEN, (_match, dollar?: string, braced?: string) => {
+    switch (dollar ?? braced) {
+      case "key":
+        return row.key
+      case "value":
+        return row.value
+      case "namespace":
+        return row.namespace
+      case "language":
+        return row.language
+      default:
+        return String(index)
+    }
+  })
 
 /**
  * Builds the sample output for an export config.
@@ -82,7 +105,21 @@ export const renderExportPreview = (config: TemplateExportConfig): string => {
     .map((row, index) => substitute(config.fileRow, row, index))
     .join(config.separator ?? "\n")
 
-  return [config.fileStart, body, config.fileEnd].filter(Boolean).join("\n")
+  // `fileStart` / `fileEnd` are substituted too — an ARB header carries `$language`.
+  const context: SampleRow = {
+    key: "",
+    value: "",
+    namespace: "common",
+    language: "en",
+  }
+
+  return [
+    config.fileStart ? substitute(config.fileStart, context, 0) : "",
+    body,
+    config.fileEnd ? substitute(config.fileEnd, context, rows.length) : "",
+  ]
+    .filter(Boolean)
+    .join("\n")
 }
 
 /**
@@ -117,26 +154,30 @@ export const DEFAULT_CONFIGS: Record<
 > = {
   JSON: {
     extension: "json",
-    exportRow: '  "{key}": "{value}"',
+    exportRow: '  "$key": "$value"',
     start: "{",
     end: "}",
     separator: ",\n",
   },
-  PROPERTIES: { extension: "properties", exportRow: "{key}={value}" },
+  PROPERTIES: {
+    extension: "properties",
+    exportRow: "$key=$value",
+    separator: "\n",
+  },
   ARB: {
     extension: "arb",
-    exportRow: '  "{key}": "{value}"',
-    start: '{\n  "@@locale": "{language}",',
+    exportRow: '  "$key": "$value"',
+    start: '{\n  "@@locale": "$language",',
     end: "}",
     separator: ",\n",
   },
   XML: {
     extension: "xml",
-    exportRow: '  <string name="{key}">{value}</string>',
+    exportRow: '  <string name="$key">$value</string>',
     start: '<?xml version="1.0" encoding="utf-8"?>\n<resources>',
     end: "</resources>",
   },
-  YAML: { extension: "yaml", exportRow: "{key}: {value}" },
-  CSV: { extension: "csv", exportRow: "{key},{value}" },
-  CUSTOM: { extension: "txt", exportRow: "{key}={value}" },
+  YAML: { extension: "yaml", exportRow: "$key: $value" },
+  CSV: { extension: "csv", exportRow: "$key,$value", start: "key,value" },
+  CUSTOM: { extension: "txt", exportRow: "$key=$value" },
 }

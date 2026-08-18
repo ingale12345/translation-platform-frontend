@@ -72,6 +72,7 @@ FeathersJS API
 | `src/types/api.ts` | `Paginated<T>`, `ListQuery<T>`, `Where<T>`, `Entity` — the request/response contract |
 | `src/types/models.ts` | Domain models mirroring the backend TypeBox schemas, each with `…Create` / `…Patch` |
 | `src/types/session.ts` | Auth and `GET /me/*` contracts |
+| `src/types/operations.ts` | Bulk status and export — the endpoints that act rather than store |
 | `src/lib/http/` | axios instance, error normalisation, query-param builder, request context |
 | `src/services/` | `createResourceService` plus one typed client per API service |
 | `src/lib/query/` | Query-key factory and `createResourceHooks` |
@@ -199,6 +200,7 @@ way to reach the page.
 | `MultiSelect` | Multi-select with removable chips |
 | `AppLink` | In-app link with a string target — see its note on router typing |
 | `SelectField` | Select that renders option **labels**, not raw values |
+| `ExportDialog` | Start an export and save the file (`features/export-jobs/components`) |
 | `StatusChip` | Translation status, from the one status table |
 | `SearchInput` | Debounced search box |
 | `Pagination` | Offset paging straight off a Feathers page |
@@ -212,7 +214,7 @@ and filter reads from it, so `APPROVED` is the same indigo everywhere.
 
 ## What is built
 
-Every screen in the navigation is built. Three are limited by backend work that does not
+Every screen in the navigation is built. Two are limited by backend work that does not
 exist yet, and say so on the page rather than failing silently.
 
 | Screen | State |
@@ -220,7 +222,7 @@ exist yet, and say so on the page rather than failing silently.
 | Login | ✅ |
 | App shell — sidebar, topbar, project switcher, permission peek | ✅ |
 | Dashboard — coverage, status roll-up, recent activity | ✅ |
-| Translations — grid, inline editing, add key, approve/publish, history, comments | ✅ |
+| Translations — grid, inline + dialog editing, **bulk status**, chat, per-cell history | ✅ |
 | Applications — card grid, create/edit/delete | ✅ |
 | Languages — catalogue and per-project enablement | ✅ |
 | Members — invite, multi-role assignment, remove | ✅ |
@@ -230,7 +232,7 @@ exist yet, and say so on the page rather than failing silently.
 | Settings — project metadata and feature toggles | ✅ |
 | API Tokens | List and revoke ✅ · **create blocked** — the server must mint the token |
 | Import | Job history ✅ · **upload blocked** — no endpoint receives or parses a file |
-| Export | Job history ✅ · **start blocked** — no worker renders the file |
+| Export | ✅ — renders and downloads; approved-only rule enforced server-side |
 
 See [`docs/UI_PLAN.md`](./docs/UI_PLAN.md) for each screen's design, the remaining backend
 dependencies, and the known limitations of the translation grid.
@@ -248,6 +250,14 @@ dependencies, and the known limitations of the translation grid.
   headers are attached.
 - **Never use `ui/select` directly.** Use `SelectField` — Base UI's `Select.Value` renders
   the raw value, so a select over records shows a database id in the trigger.
+- **Cell history and comments are read per cell, never per project.** `useCellHistory` and
+  `useCellComments` are the only entry points, and both require a key *and* a language.
+  Both collections grow a row per cell per event, so an unfiltered read is unbounded — it
+  looks fine in development and degrades every day in production.
+- **Bulk operations belong on the server.** `useBulkStatus` sends one request; the ladder,
+  the permission and the eligibility rules live in `POST /translations/bulk-status`. Doing
+  it as N patches from the browser would be N chances to fail halfway and a second copy of
+  the transition rules to keep in step.
 - **`DropdownMenuLabel` must sit inside a `DropdownMenuGroup`.** Base UI's `GroupLabel`
   reads a context the group provides and throws without it.
 - **Comment the "why".** The code says what it does; comments exist for decisions that are

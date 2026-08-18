@@ -1,10 +1,6 @@
-import { SendIcon } from "lucide-react"
-import { useState } from "react"
+import { ClockIcon, MessagesSquareIcon } from "lucide-react"
 
-import { EmptyState } from "@/components/common/empty-state"
-import { QueryBoundary } from "@/components/common/query-boundary"
-import { Badge } from "@/components/ui/badge"
-import { Button } from "@/components/ui/button"
+import { StatusChip } from "@/components/common/status-chip"
 import {
   Sheet,
   SheetContent,
@@ -12,15 +8,10 @@ import {
   SheetHeader,
   SheetTitle,
 } from "@/components/ui/sheet"
-import { Textarea } from "@/components/ui/textarea"
-import { useTranslationHistory } from "@/features/translation-history/hooks"
-import {
-  useCellComments,
-  useCreateTranslationComment,
-} from "@/features/translations/hooks"
-import { formatDateTime, formatRelative } from "@/lib/format"
-import type { Id } from "@/types/api"
+import { cn } from "@/lib/utils"
 import type { TranslationKey } from "@/types/models"
+import { CommentThread } from "./comment-thread"
+import { HistoryTimeline } from "./history-timeline"
 
 export type CellDrawerMode = "history" | "comments"
 
@@ -28,51 +19,91 @@ interface CellDrawerProps {
   mode: CellDrawerMode | null
   translationKey: TranslationKey | undefined
   languageCode: string | undefined
+  languageName?: string
   canComment: boolean
+  onModeChange: (mode: CellDrawerMode) => void
   onClose: () => void
 }
 
 /**
- * History and comments for one cell.
+ * History and conversation for one cell, side by side in a sheet.
  *
- * Both live in a side sheet rather than a modal: the grid stays visible, so the reviewer
- * keeps the surrounding translations in view while reading why a value changed.
+ * A sheet rather than a modal so the grid stays visible: a reviewer reading why a value
+ * changed usually wants the surrounding translations in view. The two tabs share one
+ * panel because they answer the same question from different angles — one is what
+ * happened, the other is what people said about it.
+ *
+ * Both panels are keyed by cell, so switching cells remounts them: the chat scrolls to
+ * its own newest message and neither shows the previous cell's data for a frame.
  */
 export function CellDrawer({
   mode,
   translationKey,
   languageCode,
+  languageName,
   canComment,
+  onModeChange,
   onClose,
 }: CellDrawerProps) {
   const open = Boolean(mode && translationKey && languageCode)
+  const cell = languageCode
+    ? translationKey?.translations[languageCode]
+    : undefined
+  const cellKey = `${translationKey?._id}:${languageCode}`
 
   return (
     <Sheet open={open} onOpenChange={(next) => (next ? undefined : onClose())}>
       <SheetContent
         side="right"
-        className="w-full sm:w-[480px] sm:max-w-[480px]"
+        className="flex w-full flex-col gap-0 p-0 sm:w-[560px] sm:max-w-[560px]"
       >
-        <SheetHeader>
-          <SheetTitle>
-            {mode === "history" ? "Cell history" : "Comments"}
-          </SheetTitle>
-          <SheetDescription className="font-mono text-xs">
+        <SheetHeader className="shrink-0 border-b p-4">
+          <SheetTitle className="truncate font-mono text-sm">
             {translationKey
               ? `${translationKey.namespace}.${translationKey.key}`
-              : ""}{" "}
-            · {languageCode}
+              : ""}
+          </SheetTitle>
+          <SheetDescription className="flex items-center gap-2">
+            <span>{languageName ?? languageCode}</span>
+            <StatusChip status={cell?.status} size="sm" />
           </SheetDescription>
+
+          {cell?.value ? (
+            <p className="mt-2 max-h-24 overflow-y-auto rounded-md bg-muted/60 px-3 py-2 text-sm break-words">
+              {cell.value}
+            </p>
+          ) : null}
         </SheetHeader>
 
-        <div className="flex-1 overflow-y-auto px-4 pb-4">
+        <div
+          className="flex shrink-0 gap-1 border-b px-2 py-1.5"
+          role="tablist"
+          aria-label="Cell detail"
+        >
+          <Tab
+            isActive={mode === "comments"}
+            onClick={() => onModeChange("comments")}
+            icon={MessagesSquareIcon}
+            label="Conversation"
+          />
+          <Tab
+            isActive={mode === "history"}
+            onClick={() => onModeChange("history")}
+            icon={ClockIcon}
+            label="History"
+          />
+        </div>
+
+        <div className="min-h-0 flex-1 overflow-y-auto">
           {mode === "history" ? (
-            <HistoryList
+            <HistoryTimeline
+              key={`history:${cellKey}`}
               translationKeyId={translationKey?._id}
               languageCode={languageCode}
             />
           ) : (
             <CommentThread
+              key={`chat:${cellKey}`}
               translationKey={translationKey}
               languageCode={languageCode}
               canComment={canComment}
@@ -84,144 +115,32 @@ export function CellDrawer({
   )
 }
 
-function HistoryList({
-  translationKeyId,
-  languageCode,
+function Tab({
+  isActive,
+  onClick,
+  icon: Icon,
+  label,
 }: {
-  translationKeyId: Id | undefined
-  languageCode: string | undefined
+  isActive: boolean
+  onClick: () => void
+  icon: typeof ClockIcon
+  label: string
 }) {
-  const query = useTranslationHistory(
-    {
-      where: {
-        translationKeyId: translationKeyId ?? "",
-        languageCode: languageCode ?? "",
-      },
-      sortDesc: "changedAt",
-      limit: 50,
-    },
-    { enabled: Boolean(translationKeyId && languageCode) }
-  )
-
-  const entries = query.data?.data ?? []
-
   return (
-    <QueryBoundary
-      isLoading={query.isLoading}
-      error={query.error}
-      isEmpty={entries.length === 0}
-      onRetry={query.refetch}
-      empty={
-        <EmptyState
-          title="No history yet"
-          body="Changes to this cell will appear here."
-        />
-      }
+    <button
+      type="button"
+      role="tab"
+      aria-selected={isActive}
+      onClick={onClick}
+      className={cn(
+        "flex flex-1 items-center justify-center gap-1.5 rounded-md px-3 py-1.5 text-xs font-medium transition-colors",
+        isActive
+          ? "bg-muted text-foreground"
+          : "text-muted-foreground hover:bg-muted/60 hover:text-foreground"
+      )}
     >
-      <ol className="space-y-3">
-        {entries.map((entry) => (
-          <li key={entry._id} className="border-l-2 pl-3">
-            <div className="flex items-center gap-2">
-              <Badge variant="secondary">{entry.action}</Badge>
-              <span className="text-[11px] text-muted-foreground">
-                {formatDateTime(entry.changedAt)}
-              </span>
-            </div>
-            {entry.oldValue ? (
-              <p className="mt-1.5 text-xs text-muted-foreground line-through">
-                {entry.oldValue}
-              </p>
-            ) : null}
-            {entry.newValue ? (
-              <p className="mt-0.5 text-sm">{entry.newValue}</p>
-            ) : null}
-          </li>
-        ))}
-      </ol>
-    </QueryBoundary>
-  )
-}
-
-function CommentThread({
-  translationKey,
-  languageCode,
-  canComment,
-}: {
-  translationKey: TranslationKey | undefined
-  languageCode: string | undefined
-  canComment: boolean
-}) {
-  const [draft, setDraft] = useState("")
-  const query = useCellComments(translationKey?._id, languageCode)
-  const createComment = useCreateTranslationComment()
-
-  const comments = query.data?.data ?? []
-
-  const submit = () => {
-    if (!draft.trim() || !translationKey || !languageCode) {
-      return
-    }
-
-    createComment.mutate(
-      {
-        organizationId: translationKey.organizationId,
-        projectId: translationKey.projectId,
-        applicationId: translationKey.applicationId,
-        translationKeyId: translationKey._id,
-        languageCode,
-        comment: draft.trim(),
-        resolved: false,
-      },
-      { onSuccess: () => setDraft("") }
-    )
-  }
-
-  return (
-    <div className="flex h-full flex-col">
-      <div className="flex-1">
-        <QueryBoundary
-          isLoading={query.isLoading}
-          error={query.error}
-          isEmpty={comments.length === 0}
-          onRetry={query.refetch}
-          empty={
-            <EmptyState
-              title="No comments"
-              body="Start a thread if this translation needs discussion."
-            />
-          }
-        >
-          <ol className="space-y-3">
-            {comments.map((comment) => (
-              <li key={comment._id} className="rounded-lg bg-muted/40 p-3">
-                <p className="text-sm">{comment.comment}</p>
-                <p className="mt-1 text-[11px] text-muted-foreground">
-                  {formatRelative(comment.createdAt)}
-                </p>
-              </li>
-            ))}
-          </ol>
-        </QueryBoundary>
-      </div>
-
-      {canComment ? (
-        <div className="mt-4 space-y-2 border-t pt-3">
-          <Textarea
-            value={draft}
-            onChange={(event) => setDraft(event.target.value)}
-            placeholder="Add a comment…"
-            rows={3}
-          />
-          <Button
-            size="sm"
-            className="w-full"
-            onClick={submit}
-            disabled={!draft.trim() || createComment.isPending}
-          >
-            <SendIcon /> Post comment
-          </Button>
-        </div>
-      ) : null}
-    </div>
+      <Icon className="size-3.5" />
+      {label}
+    </button>
   )
 }

@@ -13,12 +13,15 @@ import { Pagination } from "@/components/common/pagination"
 import { SearchInput } from "@/components/common/search-input"
 import { StatusChip } from "@/components/common/status-chip"
 import { Button } from "@/components/ui/button"
+import { Checkbox } from "@/components/ui/checkbox"
 import { SelectField } from "@/components/common/select-field"
 import { Skeleton } from "@/components/ui/skeleton"
 import { useAllApplications } from "@/features/applications/hooks"
+import { ExportDialog } from "@/features/export-jobs/components/export-dialog"
 import { useAllLanguages } from "@/features/languages/hooks"
 import { useActiveProjectId, usePermissions } from "@/features/session/hooks"
 import {
+  useCommentCounts,
   useCoverage,
   useSetCellStatus,
   useSetCellValue,
@@ -30,6 +33,8 @@ import { TRANSLATION_STATUS_FLOW, statusMeta } from "@/lib/translation-status"
 import type { Id } from "@/types/api"
 import type { TranslationKey, TranslationStatus } from "@/types/models"
 import { AddKeyDialog } from "./components/add-key-dialog"
+import { BulkActionBar } from "./components/bulk-action-bar"
+import { BulkStatusDialog } from "./components/bulk-status-dialog"
 import { CellEditDialog } from "./components/cell-edit-dialog"
 import { CellDrawer } from "./components/cell-drawer"
 import type { CellDrawerMode } from "./components/cell-drawer"
@@ -86,6 +91,9 @@ export function TranslationsPage() {
   } | null>(null)
   const [isAddKeyOpen, setAddKeyOpen] = useState(false)
   const [expanded, setExpanded] = useState<EditingCell | null>(null)
+  const [isExportOpen, setExportOpen] = useState(false)
+  const [selected, setSelected] = useState<Set<Id>>(new Set())
+  const [bulkStatus, setBulkStatus] = useState<TranslationStatus | null>(null)
 
   // The selected application is *derived*: switching project replaces the list, and a
   // requested id that is no longer in it falls back to the first rather than leaving the
@@ -108,6 +116,9 @@ export function TranslationsPage() {
   if (filterKey !== lastFilterKey) {
     setLastFilterKey(filterKey)
     setSkip(0)
+    // A selection is a set of ids from the previous result set. Carrying it across a
+    // filter change would let a bulk action hit keys the user can no longer see.
+    setSelected(new Set())
   }
 
   const gridQuery = useTranslationGrid({
@@ -155,6 +166,35 @@ export function TranslationsPage() {
   }, [rows, statusFilter])
 
   const coverage = useCoverage(rows, languageCodes)
+  const commentCounts = useCommentCounts(
+    useMemo(() => rows.map((row) => row._id), [rows])
+  )
+
+  const selectedIds = useMemo(() => Array.from(selected), [selected])
+  const allOnPageSelected =
+    visibleRows.length > 0 && visibleRows.every((row) => selected.has(row._id))
+
+  const toggleRow = (id: Id) =>
+    setSelected((current) => {
+      const next = new Set(current)
+
+      if (next.has(id)) {
+        next.delete(id)
+      } else {
+        next.add(id)
+      }
+
+      return next
+    })
+
+  const toggleAllOnPage = () =>
+    setSelected((current) =>
+      // "Select all" means the rows actually on screen — including the client-side status
+      // filter — so what gets ticked always matches what the user can see.
+      current.size === visibleRows.length && visibleRows.length > 0
+        ? new Set()
+        : new Set(visibleRows.map((row) => row._id))
+    )
 
   const setCellValue = useSetCellValue()
   const setCellStatus = useSetCellStatus()
@@ -298,7 +338,11 @@ export function TranslationsPage() {
             </Button>
           ) : null}
           {canExport ? (
-            <Button variant="outline" size="sm" disabled>
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => setExportOpen(true)}
+            >
               <DownloadIcon /> Export
             </Button>
           ) : null}
@@ -316,6 +360,21 @@ export function TranslationsPage() {
           You have read-only access to translations in this project. Editing
           controls are hidden.
         </div>
+      ) : null}
+
+      {selected.size > 0 ? (
+        <BulkActionBar
+          selectedCount={selected.size}
+          totalOnPage={visibleRows.length}
+          canEdit={canEdit}
+          canApprove={canApprove}
+          canPublish={canPublish}
+          onSelectAllOnPage={() =>
+            setSelected(new Set(visibleRows.map((row) => row._id)))
+          }
+          onClear={() => setSelected(new Set())}
+          onAction={setBulkStatus}
+        />
       ) : null}
 
       <div className="flex flex-wrap items-center gap-4 border-b bg-muted/30 px-5 py-2.5">
@@ -380,9 +439,18 @@ export function TranslationsPage() {
                   className="sticky left-0 z-30 border-r border-b bg-muted px-4 py-2.5 text-left"
                   style={{ minWidth: 260, width: 260 }}
                 >
-                  <span className="text-xs font-semibold text-muted-foreground">
-                    Key
-                  </span>
+                  <div className="flex items-center gap-2.5">
+                    {canEdit ? (
+                      <Checkbox
+                        checked={allOnPageSelected}
+                        onCheckedChange={toggleAllOnPage}
+                        aria-label="Select all keys on this page"
+                      />
+                    ) : null}
+                    <span className="text-xs font-semibold text-muted-foreground">
+                      Key
+                    </span>
+                  </div>
                 </th>
                 {languageCodes.map((code) => {
                   const language = languageByCode.get(code)
@@ -413,23 +481,35 @@ export function TranslationsPage() {
                     className="sticky left-0 z-10 border-r border-b bg-background px-4 py-2.5 align-top group-hover/row:bg-muted/40"
                     style={{ minWidth: 260, width: 260 }}
                   >
-                    <p className="font-mono text-[13px] font-medium">
-                      {row.key}
-                    </p>
-                    {row.description ? (
-                      <p className="mt-0.5 text-[11px] text-muted-foreground">
-                        {row.description}
-                      </p>
-                    ) : null}
-                    <div className="mt-1.5 flex flex-wrap gap-1">
-                      {row.tags.map((tag) => (
-                        <span
-                          key={tag}
-                          className="rounded bg-muted px-1.5 py-0.5 font-mono text-[10px] text-muted-foreground"
-                        >
-                          {tag}
-                        </span>
-                      ))}
+                    <div className="flex gap-2.5">
+                      {canEdit ? (
+                        <Checkbox
+                          className="mt-0.5"
+                          checked={selected.has(row._id)}
+                          onCheckedChange={() => toggleRow(row._id)}
+                          aria-label={`Select ${row.key}`}
+                        />
+                      ) : null}
+                      <div className="min-w-0">
+                        <p className="font-mono text-[13px] font-medium">
+                          {row.key}
+                        </p>
+                        {row.description ? (
+                          <p className="mt-0.5 text-[11px] text-muted-foreground">
+                            {row.description}
+                          </p>
+                        ) : null}
+                        <div className="mt-1.5 flex flex-wrap gap-1">
+                          {row.tags.map((tag) => (
+                            <span
+                              key={tag}
+                              className="rounded bg-muted px-1.5 py-0.5 font-mono text-[10px] text-muted-foreground"
+                            >
+                              {tag}
+                            </span>
+                          ))}
+                        </div>
+                      </div>
                     </div>
                   </td>
 
@@ -450,7 +530,9 @@ export function TranslationsPage() {
                         canPublish={canPublish}
                         canComment={canComment}
                         isSaving={setCellValue.isPending}
-                        commentCount={0}
+                        commentCount={
+                          commentCounts.get(`${row._id}:${code}`) ?? 0
+                        }
                         onEdit={() => startEdit(row, code)}
                         onExpand={() => startExpandedEdit(row, code)}
                         onSave={() => saveEdit(row, code)}
@@ -489,7 +571,10 @@ export function TranslationsPage() {
             total={gridQuery.data.total}
             limit={gridQuery.data.limit}
             skip={gridQuery.data.skip}
-            onSkipChange={setSkip}
+            onSkipChange={(next) => {
+              setSkip(next)
+              setSelected(new Set())
+            }}
             className="flex-1"
           />
           {statusFilter !== "ALL" ? (
@@ -543,8 +628,33 @@ export function TranslationsPage() {
         mode={drawer?.mode ?? null}
         translationKey={drawerRow}
         languageCode={drawer?.cell.languageCode}
+        languageName={
+          drawer ? languageNames.get(drawer.cell.languageCode) : undefined
+        }
         canComment={canComment}
+        onModeChange={(mode) =>
+          setDrawer((current) => (current ? { ...current, mode } : current))
+        }
         onClose={() => setDrawer(null)}
+      />
+
+      <BulkStatusDialog
+        open={Boolean(bulkStatus)}
+        onOpenChange={(open) => (open ? undefined : setBulkStatus(null))}
+        status={bulkStatus ?? "APPROVED"}
+        projectId={projectId}
+        applicationId={applicationId}
+        translationKeyIds={selectedIds}
+        languageCodes={languageCodes}
+        languageLabels={languageNames}
+        onDone={() => setSelected(new Set())}
+      />
+
+      <ExportDialog
+        open={isExportOpen}
+        onOpenChange={setExportOpen}
+        defaultApplicationId={applicationId}
+        languageLabels={languageNames}
       />
     </div>
   )
