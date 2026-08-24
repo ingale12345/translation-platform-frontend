@@ -10,7 +10,7 @@ import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { SelectField } from "@/components/common/select-field"
 import { useInfiniteActivityLogs } from "@/features/activity-logs/hooks"
-import { useActiveProjectId } from "@/features/session/hooks"
+import { useActiveProjectId, useMemberships } from "@/features/session/hooks"
 import { useAllUsers } from "@/features/users/hooks"
 import { contains } from "@/lib/http/params"
 import { formatDateTime, formatRelative, fullName } from "@/lib/format"
@@ -32,21 +32,48 @@ const ENTITY_TYPES = [
 ]
 
 /**
- * The project's audit trail.
+ * The audit trail.
+ *
+ * Scope defaults to **everything the reader may see**, not to the active project. A
+ * platform admin's question is "what happened in this organization", and pinning the query
+ * to the switcher hid two whole classes of entry from them: events above any project (a
+ * sign-in, a project being created) and events in the other projects they administer. The
+ * server narrows an unscoped request to the caller's own reach — organization-wide for an
+ * admin, their own projects for a manager — so asking widely is safe. See
+ * docs/RBAC.md § "Scoping a `find` that names no project".
  *
  * Infinite scroll rather than pages: an audit log is read by scanning backwards from now,
  * and a reader who has to click "next" loses their place every time a new entry arrives
  * at the top.
  */
 export function AuditPage() {
-  const projectId = useActiveProjectId()
+  const activeProjectId = useActiveProjectId()
+  const membershipsQuery = useMemberships()
 
   const [search, setSearch] = useState("")
   const [entityType, setEntityType] = useState<string>("ALL")
+  const [scope, setScope] = useState<string>("ALL")
   const [expanded, setExpanded] = useState<Id | null>(null)
 
+  const projectOptions = useMemo(
+    () => [
+      { value: "ALL", label: "Everything I can see" },
+      ...(membershipsQuery.data ?? []).map((membership) => ({
+        value: membership.projectId,
+        label:
+          membership.project?.name ??
+          (membership.projectId === activeProjectId ? "This project" : "Project"),
+      })),
+    ],
+    [membershipsQuery.data, activeProjectId]
+  )
+
   const query = useMemo(() => {
-    const where: Record<string, unknown> = { projectId: projectId ?? "" }
+    const where: Record<string, unknown> = {}
+
+    if (scope !== "ALL") {
+      where.projectId = scope
+    }
 
     if (entityType !== "ALL") {
       where.entityType = entityType
@@ -56,12 +83,18 @@ export function AuditPage() {
       where.action = contains(search)
     }
 
-    return { where, sortDesc: "createdAt" as const, limit: PAGE_SIZE }
-  }, [projectId, entityType, search])
+    return {
+      where,
+      sortDesc: "createdAt" as const,
+      limit: PAGE_SIZE,
+      // Without this the request still carries `X-Project-Id` from the switcher, and the
+      // server reads it as the answer — so "everything I can see" quietly became "the
+      // active project", hiding sign-ins and every other project's entries.
+      unscoped: scope === "ALL",
+    }
+  }, [scope, entityType, search])
 
-  const logsQuery = useInfiniteActivityLogs(query, {
-    enabled: Boolean(projectId),
-  })
+  const logsQuery = useInfiniteActivityLogs(query)
 
   const entries = useMemo(
     () => logsQuery.data?.pages.flatMap((page) => page.data) ?? [],
@@ -81,7 +114,7 @@ export function AuditPage() {
     <div className="p-5">
       <PageHeader
         title="Audit Log"
-        description="Every change made in this project, newest first."
+        description="Every change you have visibility of, newest first."
         actions={
           <div className="flex items-center gap-2">
             <SearchInput
@@ -89,6 +122,12 @@ export function AuditPage() {
               onChange={setSearch}
               placeholder="Search actions…"
               className="w-56"
+            />
+            <SelectField
+              className="w-52"
+              value={scope}
+              onChange={setScope}
+              options={projectOptions}
             />
             <SelectField
               className="w-48"
@@ -112,7 +151,7 @@ export function AuditPage() {
           <EmptyState
             icon={ScrollTextIcon}
             title={
-              search || entityType !== "ALL"
+              search || entityType !== "ALL" || scope !== "ALL"
                 ? "No matching activity"
                 : "No activity yet"
             }
@@ -211,8 +250,22 @@ function AuditRow({
 
       {isExpanded && hasDetail ? (
         <div className="grid gap-3 border-t bg-muted/30 px-4 py-3 sm:grid-cols-2">
-          <ValueBlock label="Before" value={entry.oldValue} />
-          <ValueBlock label="After" value={entry.newValue} />
+          {/*
+            An operation entry — a bulk run, an export — carries no before/after, only
+            `metadata`. Showing just the two value blocks left its chevron opening onto
+            two empty dashes.
+          */}
+          {entry.metadata ? (
+            <div className="sm:col-span-2">
+              <ValueBlock label="Details" value={entry.metadata} />
+            </div>
+          ) : null}
+          {entry.oldValue || entry.newValue ? (
+            <>
+              <ValueBlock label="Before" value={entry.oldValue} />
+              <ValueBlock label="After" value={entry.newValue} />
+            </>
+          ) : null}
         </div>
       ) : null}
     </li>

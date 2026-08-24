@@ -39,6 +39,8 @@ export const buildListParams = <T>(
     params.skip = query.skip
   }
 
+  // `unscoped` is a transport concern — it suppresses a header — and must never reach the
+  // server as a query field, where `additionalProperties: false` would reject the request.
   assign(params, "sortAsc", query.sortAsc)
   assign(params, "sortDesc", query.sortDesc)
   assign(params, "isExists", query.isExists)

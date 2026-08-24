@@ -27,6 +27,11 @@ declare module "axios" {
      * password would otherwise read as an expired session and log the user out.
      */
     skipAuthRedirect?: boolean
+    /**
+     * Sends no `X-Project-Id`, so the server scopes the request to everything the caller
+     * may see rather than to the project in the switcher. Set from `ListQuery.unscoped`.
+     */
+    skipProjectHeader?: boolean
   }
 }
 
@@ -45,7 +50,7 @@ http.interceptors.request.use((config: Config) => {
     config.headers.set("X-Organization-Id", organizationId)
   }
 
-  if (projectId) {
+  if (projectId && !config.skipProjectHeader) {
     config.headers.set("X-Project-Id", projectId)
   }
 

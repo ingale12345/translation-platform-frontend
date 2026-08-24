@@ -109,6 +109,17 @@ export interface ListQuery<T> {
   isNotExists?: OneOrMany<FieldName<T>>
   /** Pass `false` to get every match as a plain array instead of a page. */
   paginate?: false
+  /**
+   * Drop the ambient `X-Project-Id` header for this request.
+   *
+   * Every request carries the project from the switcher so ordinary screens stay scoped to
+   * it without threading an id through each call. A genuinely cross-project screen — the
+   * audit trail, a projects hub — has to opt out, or the server reads the header as the
+   * answer and quietly narrows the very question the screen exists to ask. It is *not* a
+   * way to see more: the server still narrows an unscoped request to what the caller may
+   * reach. See docs/RBAC.md § "Scoping a `find` that names no project".
+   */
+  unscoped?: boolean
 }
 
 /** Page state as list screens hold it, before it becomes `limit` / `skip`. */

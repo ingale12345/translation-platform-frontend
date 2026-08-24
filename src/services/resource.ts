@@ -85,6 +85,7 @@ export const createResourceService = <
     async list(query, config) {
       const { data } = await http.get<Paginated<TModel>>(url(), {
         ...config,
+        skipProjectHeader: query?.unscoped,
         params: { ...buildListParams(query), ...config?.params },
       })
 
@@ -94,6 +95,7 @@ export const createResourceService = <
     async listAll(query, config) {
       const { data } = await http.get<TModel[]>(url(), {
         ...config,
+        skipProjectHeader: query?.unscoped,
         params: {
           ...buildListParams({ ...query, paginate: false }),
           ...config?.params,

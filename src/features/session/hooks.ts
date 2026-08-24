@@ -84,6 +84,16 @@ export interface PermissionsApi {
   isLoading: boolean
   /** True once the matrix has loaded and the user holds an active membership. */
   isMember: boolean
+  /**
+   * True when an organization-scoped role is contributing — i.e. a platform admin.
+   *
+   * Some acts are organization-level whatever the project matrix says: minting a user
+   * account, granting somebody organization-wide authority. `can()` cannot answer those,
+   * because it reports the *merged* matrix for the active project and a project manager's
+   * `PROJECT_MEMBERS:create` looks identical to an admin's there. The server draws the
+   * same line in `authorizeUsers` / `assertOrganizationPermission`.
+   */
+  isOrganizationMember: boolean
   can: (
     entitlement: EntitlementCode | string,
     action: PermissionAction
@@ -119,6 +129,7 @@ export const usePermissions = (): PermissionsApi => {
       data,
       isLoading,
       isMember: data?.isMember ?? false,
+      isOrganizationMember: data?.isOrganizationMember ?? false,
       can: check,
       canAny: checkAny,
     }),

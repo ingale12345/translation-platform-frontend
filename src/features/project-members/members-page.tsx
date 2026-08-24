@@ -1,5 +1,6 @@
 import {
   ChevronDownIcon,
+  PencilIcon,
   PlusIcon,
   Trash2Icon,
   UserPlusIcon,
@@ -30,7 +31,8 @@ import {
   useProjectMemberRows,
   useUpdateProjectMember,
 } from "@/features/project-members/hooks"
-import { InviteMemberDialog } from "./components/invite-member-dialog"
+import { MemberFormDialog } from "./components/member-form-dialog"
+import type { EditingMember } from "./components/member-form-dialog"
 import type { ProjectMemberRow } from "@/features/project-members/hooks"
 import { useActiveProjectId, usePermissions } from "@/features/session/hooks"
 import { formatDate, fullName } from "@/lib/format"
@@ -68,7 +70,20 @@ export function MembersPage() {
 
   const updateMember = useUpdateProjectMember()
   const [pendingId, setPendingId] = useState<Id | null>(null)
-  const [isInviteOpen, setInviteOpen] = useState(false)
+  const [isFormOpen, setFormOpen] = useState(false)
+  // `null` means "add"; a row means "edit that person". One dialog, because from a members
+  // table adding and editing are the same shape of task.
+  const [editing, setEditing] = useState<EditingMember | null>(null)
+
+  const openAdd = () => {
+    setEditing(null)
+    setFormOpen(true)
+  }
+
+  const openEdit = (row: ProjectMemberRow) => {
+    setEditing({ member: row.member, user: row.user, roles: row.roles })
+    setFormOpen(true)
+  }
   const [pendingRemove, setPendingRemove] = useState<ProjectMemberRow | null>(
     null
   )
@@ -232,6 +247,17 @@ export function MembersPage() {
               </DropdownMenu>
             ) : null}
 
+            {canManage ? (
+              <Button
+                variant="ghost"
+                size="sm"
+                aria-label={`Edit ${fullName(row.user)}`}
+                onClick={() => openEdit(row)}
+              >
+                <PencilIcon />
+              </Button>
+            ) : null}
+
             {canRemove && row.member.status !== "removed" ? (
               <Button
                 variant="ghost"
@@ -256,8 +282,8 @@ export function MembersPage() {
         description="A user can hold several roles here; their permissions are the union of all of them."
         actions={
           <Can entitlement={ENTITLEMENTS.PROJECT_MEMBERS} action="create">
-            <Button onClick={() => setInviteOpen(true)}>
-              <PlusIcon /> Invite member
+            <Button onClick={openAdd}>
+              <PlusIcon /> Add member
             </Button>
           </Can>
         }
@@ -273,11 +299,11 @@ export function MembersPage() {
           <EmptyState
             icon={UsersIcon}
             title="No members yet"
-            body="Invite someone to give them access to this project."
+            body="Add someone to give them access to this project."
             action={
               canInvite ? (
-                <Button size="sm" onClick={() => setInviteOpen(true)}>
-                  <UserPlusIcon /> Invite member
+                <Button size="sm" onClick={openAdd}>
+                  <UserPlusIcon /> Add member
                 </Button>
               ) : (
                 <Button variant="outline" size="sm" onClick={() => refetch()}>
@@ -289,18 +315,19 @@ export function MembersPage() {
         }
       />
 
-      <InviteMemberDialog
-        open={isInviteOpen}
-        onOpenChange={setInviteOpen}
+      <MemberFormDialog
+        open={isFormOpen}
+        onOpenChange={setFormOpen}
         roles={roles}
         existingMembers={rows.map((row) => row.member)}
+        editing={editing}
       />
 
       <ConfirmDialog
         open={Boolean(pendingRemove)}
         onOpenChange={(open) => (open ? undefined : setPendingRemove(null))}
         title={`Remove ${fullName(pendingRemove?.user)}?`}
-        description="They lose access to this project immediately. Their translation history is kept, and they can be invited again later."
+        description="They lose access to this project immediately. Their translation history is kept, and they can be added again later."
         confirmLabel="Remove member"
         destructive
         isPending={updateMember.isPending}
