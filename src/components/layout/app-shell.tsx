@@ -54,20 +54,24 @@ export function AppShell() {
     }
   }, [isAuthenticated, navigate])
 
+  /**
+   * Is the stored project still one of ours?
+   *
+   * `activeProjectId` is persisted, so it outlives the project it names — a project that
+   * was deleted, access that was revoked, or a database that was reseeded underneath a
+   * tab left open. The id then rides along on every request as `X-Project-Id` and every
+   * screen fails at once.
+   */
+  const isStale =
+    Boolean(memberships?.length) &&
+    !memberships?.some((membership) => membership.projectId === activeProjectId)
+
   // Land in a project on first sign-in, and recover if the stored one is no longer ours.
   useEffect(() => {
-    if (!memberships?.length) {
-      return
-    }
-
-    const stored = memberships.find(
-      (membership) => membership.projectId === activeProjectId
-    )
-
-    if (!stored) {
+    if (memberships?.length && isStale) {
       switchProject(memberships[0])
     }
-  }, [memberships, activeProjectId, switchProject])
+  }, [memberships, isStale, switchProject])
 
   // Nothing below is meaningful without a session, and rendering it for one frame is what
   // produced the "No project access" flash on the way out.
@@ -75,7 +79,11 @@ export function AppShell() {
     return null
   }
 
-  if (membershipsLoading) {
+  // Hold the shell closed until the active project is known-good. The effect above fixes
+  // it within a frame, but rendering the page first means every child fires its queries
+  // with the stale id — a burst of 404s, and an error state the user sees before the
+  // correction lands. Waiting is invisible; failing is not.
+  if (membershipsLoading || isStale) {
     return <ShellSkeleton />
   }
 
