@@ -39,11 +39,24 @@ export const rowCellRefs = (
   languageCodes: string[]
 ): CellRef[] => languageCodes.map((code) => cellRef(row._id, code))
 
-/** Every cell on the page — what the header checkbox ticks. */
+/** A key the code no longer contains. Kept and shown, but never exported or delivered. */
+export const isDisabledRow = (row: TranslationKey): boolean =>
+  row.rowStatus === "DISABLED"
+
+/**
+ * Every cell on the page — what the header checkbox ticks.
+ *
+ * Disabled rows are left out. "Approve everything on this page" should not quietly sign
+ * off on strings that no longer exist in the code; they can still be ticked one at a time
+ * if somebody genuinely means to.
+ */
 export const pageCellRefs = (
   rows: TranslationKey[],
   languageCodes: string[]
-): CellRef[] => rows.flatMap((row) => rowCellRefs(row, languageCodes))
+): CellRef[] =>
+  rows
+    .filter((row) => !isDisabledRow(row))
+    .flatMap((row) => rowCellRefs(row, languageCodes))
 
 /**
  * Toggles a group as a whole: any unticked member selects them all, otherwise clear.

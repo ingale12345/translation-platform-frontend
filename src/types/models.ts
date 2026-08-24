@@ -291,6 +291,12 @@ export interface TranslationValue {
   approvedAt?: string
 }
 
+/** Whether the key still exists in the code, as of the most recent import. */
+export type RowStatus = "ACTIVE" | "DISABLED"
+
+/** Where the key came from. `MANUAL` keys are never disabled by an import. */
+export type KeyOrigin = "IMPORT" | "MANUAL"
+
 export interface TranslationKey extends Entity {
   organizationId: Id
   projectId: Id
@@ -301,7 +307,58 @@ export interface TranslationKey extends Entity {
   tags: string[]
   /** Keyed by language code — `{ en: { value, status }, ja: { … } }`. */
   translations: Record<string, TranslationValue>
+
+  /**
+   * Import lifecycle. A key a later import no longer contains is disabled rather than
+   * deleted: it keeps its translations, its conversation and its history, drops out of
+   * exports and the runtime API, and comes back whole if the key reappears.
+   */
+  rowStatus?: RowStatus
+  origin?: KeyOrigin
+  firstSeenVersion?: number
+  lastSeenVersion?: number
+  disabledInVersion?: number | null
+  restoredInVersion?: number | null
+  disabledAt?: string | null
 }
+
+export type VersionStatus = "DRAFT" | "PUBLISHED" | "SUPERSEDED"
+
+export interface VersionStatistics {
+  total: number
+  added: number
+  updated: number
+  unchanged: number
+  disabled: number
+  restored: number
+  manualUntouched: number
+}
+
+/**
+ * One import.
+ *
+ * Created by importing and by nothing else, so a version can never be forgotten. Exactly
+ * one per application is `PUBLISHED` — that is the key set exports and the runtime API
+ * deliver, and moving it is a separate, deliberate act from importing.
+ */
+export interface TranslationVersion extends Entity {
+  organizationId: Id
+  projectId: Id
+  applicationId: Id
+  version: number
+  status: VersionStatus
+  templateId?: Id
+  fileName?: string
+  languageCode: string
+  statistics: VersionStatistics
+  note?: string
+  publishedAt?: string
+  publishedBy?: Id
+}
+
+export type TranslationVersionPatch = Partial<
+  Pick<TranslationVersion, "status" | "note">
+>
 
 export type TranslationKeyCreate = Omit<TranslationKey, keyof Entity>
 export type TranslationKeyPatch = Partial<TranslationKeyCreate>

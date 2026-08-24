@@ -1,4 +1,5 @@
 import {
+  ArchiveIcon,
   DownloadIcon,
   InfoIcon,
   PlusIcon,
@@ -29,11 +30,13 @@ import {
 } from "@/features/translations/hooks"
 import { errorMessage } from "@/lib/http/errors"
 import { ENTITLEMENTS } from "@/lib/rbac"
+import { cn } from "@/lib/utils"
 import { TRANSLATION_STATUS_FLOW, statusMeta } from "@/lib/translation-status"
 import type { Id } from "@/types/api"
 import type { TranslationKey, TranslationStatus } from "@/types/models"
 import {
   cellRef,
+  isDisabledRow,
   pageCellRefs,
   parseCellRef,
   rowCellRefs,
@@ -95,6 +98,9 @@ export function TranslationsPage() {
   const [statusFilter, setStatusFilter] = useState<TranslationStatus | "ALL">(
     "ALL"
   )
+  // Disabled rows are hidden by default. They are kept so nothing is lost, not so that
+  // everyday translating happens against strings the code no longer contains.
+  const [showDisabled, setShowDisabled] = useState(false)
   const [skip, setSkip] = useState(0)
   const [editing, setEditing] = useState<EditingCell | null>(null)
   const [draft, setDraft] = useState("")
@@ -125,7 +131,7 @@ export function TranslationsPage() {
    * set shows an empty grid that reads as a failure. Reset during render rather than in
    * an effect, so the grid never issues a request for the stale offset first.
    */
-  const filterKey = `${applicationId}|${search}|${statusFilter}`
+  const filterKey = `${applicationId}|${search}|${statusFilter}|${showDisabled}`
   const [lastFilterKey, setLastFilterKey] = useState(filterKey)
 
   if (filterKey !== lastFilterKey) {
@@ -168,17 +174,24 @@ export function TranslationsPage() {
    * therefore narrows the *current page* — the toolbar says so, and the backend follow-up
    * is noted in docs/UI_PLAN.md.
    */
+  const disabledCount = useMemo(
+    () => rows.filter(isDisabledRow).length,
+    [rows]
+  )
+
   const visibleRows = useMemo(() => {
+    const shown = showDisabled ? rows : rows.filter((row) => !isDisabledRow(row))
+
     if (statusFilter === "ALL") {
-      return rows
+      return shown
     }
 
-    return rows.filter((row) =>
+    return shown.filter((row) =>
       Object.values(row.translations).some(
         (cell) => cell.status === statusFilter
       )
     )
-  }, [rows, statusFilter])
+  }, [rows, statusFilter, showDisabled])
 
   const coverage = useCoverage(rows, languageCodes)
   const commentCounts = useCommentCounts(
@@ -344,6 +357,17 @@ export function TranslationsPage() {
           ]}
         />
 
+        {disabledCount > 0 ? (
+          <Button
+            variant={showDisabled ? "secondary" : "outline"}
+            size="sm"
+            onClick={() => setShowDisabled((value) => !value)}
+          >
+            <ArchiveIcon />
+            {showDisabled ? "Hiding" : "Show"} {disabledCount} disabled
+          </Button>
+        ) : null}
+
         <div className="ml-auto flex items-center gap-2">
           {canImport ? (
             <Button variant="outline" size="sm" disabled>
@@ -486,14 +510,20 @@ export function TranslationsPage() {
               </tr>
             </thead>
             <tbody>
-              {visibleRows.map((row) => (
-                <tr key={row._id} className="group/row">
+              {visibleRows.map((row) => {
+                const isDisabled = isDisabledRow(row)
+
+                return (
+                <tr
+                  key={row._id}
+                  className={cn("group/row", isDisabled && "opacity-60")}
+                >
                   <td
                     className="sticky left-0 z-10 border-r border-b bg-background px-4 py-2.5 align-top group-hover/row:bg-muted/40"
                     style={{ minWidth: 260, width: 260 }}
                   >
                     <div className="flex gap-2.5">
-                      {canEdit ? (
+                      {canEdit && !isDisabled ? (
                         <Checkbox
                           className="mt-0.5"
                           checked={rowCellRefs(row, languageCodes).every((ref) =>
@@ -504,9 +534,23 @@ export function TranslationsPage() {
                         />
                       ) : null}
                       <div className="min-w-0">
-                        <p className="font-mono text-[13px] font-medium">
+                        <p
+                          className={cn(
+                            "font-mono text-[13px] font-medium",
+                            isDisabled && "line-through decoration-1"
+                          )}
+                        >
                           {row.key}
                         </p>
+                        {isDisabled ? (
+                          <p className="mt-1 inline-flex items-center gap-1 rounded bg-muted px-1.5 py-0.5 text-[10px] text-muted-foreground">
+                            <ArchiveIcon className="size-3" />
+                            Not in the code
+                            {row.disabledInVersion
+                              ? ` since v${row.disabledInVersion}`
+                              : ""}
+                          </p>
+                        ) : null}
                         {row.description ? (
                           <p className="mt-0.5 text-[11px] text-muted-foreground">
                             {row.description}
@@ -580,7 +624,8 @@ export function TranslationsPage() {
                     )
                   })}
                 </tr>
-              ))}
+                )
+              })}
             </tbody>
           </table>
         )}

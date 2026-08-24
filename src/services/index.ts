@@ -53,6 +53,8 @@ import type {
   TranslationCommentCreate,
   TranslationCommentPatch,
   TranslationHistoryEntry,
+  TranslationVersion,
+  TranslationVersionPatch,
   TranslationKey,
   TranslationKeyCreate,
   TranslationKeyPatch,
@@ -142,6 +144,17 @@ export const translationKeysService = createResourceService<
   TranslationKeyCreate,
   TranslationKeyPatch
 >("translation-keys")
+
+/**
+ * Versions are created by the import endpoint, never by a client — the statistics on one
+ * are a measurement of what an import did, not a claim a caller gets to make. `patch` is
+ * how a version is published.
+ */
+export const translationVersionsService = createResourceService<
+  TranslationVersion,
+  never,
+  TranslationVersionPatch
+>("translation-versions")
 
 /** Append-only: history is written by the server, never by a client. */
 export const translationHistoryService = createResourceService<
