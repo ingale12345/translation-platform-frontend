@@ -466,8 +466,7 @@ export interface ApiToken extends Entity {
   projectId: Id
   applicationId: Id
   name: string
-  tokenHash: string
-  /** The visible prefix. The full token is returned once, on create, and never again. */
+  /** The visible prefix. The secret itself is returned once, on create, and never again. */
   tokenPrefix: string
   permissions: string[]
   expiresAt?: string
@@ -475,12 +474,23 @@ export interface ApiToken extends Entity {
   enabled: boolean
 }
 
+/**
+ * The response to `POST /api-tokens`, and the only time `token` is ever populated.
+ *
+ * The server stores a one-way hash, so this is not a field that can be fetched later —
+ * there is no "reveal" to build. The dialog says so at the moment of creation rather than
+ * letting somebody find out when they need it.
+ */
+export interface ApiTokenCreated extends ApiToken {
+  token: string
+}
+
 /** The hash and prefix are derived server-side; a client never sends them. */
-export type ApiTokenCreate = Omit<
-  ApiToken,
-  keyof Entity | "tokenHash" | "tokenPrefix"
+export type ApiTokenCreate = Omit<ApiToken, keyof Entity | "tokenPrefix" | "lastUsedAt">
+/** The credential itself is not editable: revoke and issue another instead. */
+export type ApiTokenPatch = Partial<
+  Pick<ApiToken, "name" | "permissions" | "expiresAt" | "enabled">
 >
-export type ApiTokenPatch = Partial<Omit<ApiToken, keyof Entity>>
 
 /* -------------------------------------------------------------------------- *
  * System

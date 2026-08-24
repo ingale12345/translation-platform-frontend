@@ -1,13 +1,13 @@
-import { InfoIcon, KeyRoundIcon, Trash2Icon } from "lucide-react"
+import { KeyRoundIcon, PlusIcon, Trash2Icon } from "lucide-react"
 import { useState } from "react"
 import { toast } from "sonner"
 
 import { ConfirmDialog } from "@/components/common/confirm-dialog"
+import { Can } from "@/components/common/can"
 import { DataTable } from "@/components/common/data-table"
 import type { DataTableColumn } from "@/components/common/data-table"
 import { EmptyState } from "@/components/common/empty-state"
 import { PageHeader } from "@/components/common/page-header"
-import { Alert, AlertDescription } from "@/components/ui/alert"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { Switch } from "@/components/ui/switch"
@@ -22,14 +22,16 @@ import { formatDate, formatRelative } from "@/lib/format"
 import { errorMessage } from "@/lib/http/errors"
 import { ENTITLEMENTS } from "@/lib/rbac"
 import type { ApiToken } from "@/types/models"
+import { CreateTokenDialog } from "./components/create-token-dialog"
 
 /**
- * Read-only tokens for the consumption API.
+ * The credentials a deployed application uses to fetch its own translations.
  *
- * Creation is intentionally absent. The backend's `apiTokensDataSchema` accepts
- * `tokenHash` from the client, which would mean the browser minting the secret and
- * choosing its own hash — a token nobody can trust. The server has to generate both and
- * return the plaintext once. Tracked as item 8 in docs/UI_PLAN.md §5.
+ * This is the far end of the whole product: a translator approves a string, someone
+ * publishes it, and a running app picks it up through one of these without a release. The
+ * table is mostly about retiring them safely — `lastUsedAt` is the column that tells an
+ * admin whether a token is still load-bearing, and revoking (a flag) is offered ahead of
+ * deleting (a row) so the audit trail survives the decision.
  */
 export function ApiTokensPage() {
   const projectId = useActiveProjectId()
@@ -54,6 +56,7 @@ export function ApiTokensPage() {
   const removeToken = useRemoveApiToken()
 
   const [pendingDelete, setPendingDelete] = useState<ApiToken | null>(null)
+  const [isCreateOpen, setCreateOpen] = useState(false)
 
   const applicationName = new Map(
     (applicationsQuery.data ?? []).map((application) => [
@@ -176,20 +179,18 @@ export function ApiTokensPage() {
     <div className="p-5">
       <PageHeader
         title="API Tokens"
-        description="Project-scoped, read-only credentials for the consumption API."
+        description="Read-only credentials an application uses to fetch its published translations at runtime."
+        actions={
+          <Can entitlement={ENTITLEMENTS.API_TOKENS} action="create">
+            <Button
+              onClick={() => setCreateOpen(true)}
+              disabled={(applicationsQuery.data ?? []).length === 0}
+            >
+              <PlusIcon /> New token
+            </Button>
+          </Can>
+        }
       />
-
-      {canCreate ? (
-        <Alert className="mb-4">
-          <InfoIcon />
-          <AlertDescription>
-            Creating tokens is not available yet. A token must be generated
-            server-side and returned exactly once — the current API would have
-            the browser choose its own secret, so the button is withheld rather
-            than shipped broken.
-          </AlertDescription>
-        </Alert>
-      ) : null}
 
       <DataTable
         columns={columns}
@@ -201,9 +202,23 @@ export function ApiTokensPage() {
           <EmptyState
             icon={KeyRoundIcon}
             title="No API tokens"
-            body="Tokens let a deployed application fetch its translations at runtime instead of bundling them."
+            body="A token lets a deployed application fetch its translations at runtime instead of bundling them at build time."
+            action={
+              canCreate && (applicationsQuery.data ?? []).length > 0 ? (
+                <Button size="sm" onClick={() => setCreateOpen(true)}>
+                  <PlusIcon /> New token
+                </Button>
+              ) : undefined
+            }
           />
         }
+      />
+
+      <CreateTokenDialog
+        open={isCreateOpen}
+        onOpenChange={setCreateOpen}
+        applications={applicationsQuery.data ?? []}
+        onCreated={() => tokensQuery.refetch()}
       />
 
       <ConfirmDialog
