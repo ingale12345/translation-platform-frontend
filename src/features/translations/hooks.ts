@@ -156,6 +156,19 @@ const patchCell = (
   },
 })
 
+/**
+ * Every write to a cell also writes history, so both caches go stale together.
+ *
+ * The server records a row per cell change in an after hook, awaited before it answers —
+ * so by the time this runs the row exists and a refetch will see it. Invalidating only the
+ * grid left an open timeline showing the state before the edit, and the only way to see
+ * what you had just done was to reload the page.
+ */
+const invalidateCell = (queryClient: ReturnType<typeof useQueryClient>) => {
+  void queryClient.invalidateQueries({ queryKey: translationKeyKeys.all })
+  void queryClient.invalidateQueries({ queryKey: translationHistoryKeys.all })
+}
+
 export const useSetCellValue = () => {
   const queryClient = useQueryClient()
 
@@ -172,8 +185,7 @@ export const useSetCellValue = () => {
         })
       )
     },
-    onSuccess: () =>
-      queryClient.invalidateQueries({ queryKey: translationKeyKeys.all }),
+    onSuccess: () => invalidateCell(queryClient),
   })
 }
 
@@ -186,8 +198,7 @@ export const useSetCellStatus = () => {
         translationKey._id,
         patchCell(translationKey, languageCode, { status })
       ),
-    onSuccess: () =>
-      queryClient.invalidateQueries({ queryKey: translationKeyKeys.all }),
+    onSuccess: () => invalidateCell(queryClient),
   })
 }
 
@@ -240,13 +251,7 @@ export const useBulkStatus = () => {
 
   return useMutation<BulkStatusResult, ApiError, BulkStatusRequest>({
     mutationFn: (request) => translationOperationsService.bulkStatus(request),
-    onSuccess: () => {
-      void queryClient.invalidateQueries({ queryKey: translationKeyKeys.all })
-      // Every moved cell wrote a history row, so any open timeline is now stale.
-      void queryClient.invalidateQueries({
-        queryKey: translationHistoryKeys.all,
-      })
-    },
+    onSuccess: () => invalidateCell(queryClient),
   })
 }
 

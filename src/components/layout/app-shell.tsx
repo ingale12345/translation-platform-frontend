@@ -1,4 +1,4 @@
-import { Outlet } from "@tanstack/react-router"
+import { Outlet, useNavigate } from "@tanstack/react-router"
 import { ShieldAlertIcon } from "lucide-react"
 import { useEffect, useState } from "react"
 
@@ -6,6 +6,7 @@ import { EmptyState } from "@/components/common/empty-state"
 import { Skeleton } from "@/components/ui/skeleton"
 import {
   useActiveProjectId,
+  useIsAuthenticated,
   useMemberships,
   usePermissions,
   useSwitchProject,
@@ -21,12 +22,20 @@ const COLLAPSE_KEY = "lmp.sidebar-collapsed"
  * It also owns tenant bootstrap. Everything below depends on an active project — the
  * sidebar is permission-filtered, and permissions are per project — so the shell picks a
  * project before rendering any page, rather than each page handling "no project yet".
+ *
+ * And it owns the *exit*. The route guard runs in `beforeLoad`, which only fires on
+ * navigation, so signing out while a page is mounted left the user sitting on it with no
+ * token: every query failed and the shell fell through to "No project access", which reads
+ * as a permissions problem rather than as being signed out. Watching the session here
+ * catches both ways it can end — the sign-out button, and a 401 revoking it underneath.
  */
 export function AppShell() {
   const [collapsed, setCollapsed] = useState(
     () => localStorage.getItem(COLLAPSE_KEY) === "true"
   )
 
+  const isAuthenticated = useIsAuthenticated()
+  const navigate = useNavigate()
   const activeProjectId = useActiveProjectId()
   const { data: memberships, isLoading: membershipsLoading } = useMemberships()
   const switchProject = useSwitchProject()
@@ -35,6 +44,15 @@ export function AppShell() {
   useEffect(() => {
     localStorage.setItem(COLLAPSE_KEY, String(collapsed))
   }, [collapsed])
+
+  // `replace` so the browser Back button does not return to a page this session can no
+  // longer load. No `redirect` search param either: signing out is not an interruption to
+  // resume, unlike the guard's redirect when an unauthenticated user asks for a page.
+  useEffect(() => {
+    if (!isAuthenticated) {
+      void navigate({ to: "/login", replace: true })
+    }
+  }, [isAuthenticated, navigate])
 
   // Land in a project on first sign-in, and recover if the stored one is no longer ours.
   useEffect(() => {
@@ -50,6 +68,12 @@ export function AppShell() {
       switchProject(memberships[0])
     }
   }, [memberships, activeProjectId, switchProject])
+
+  // Nothing below is meaningful without a session, and rendering it for one frame is what
+  // produced the "No project access" flash on the way out.
+  if (!isAuthenticated) {
+    return null
+  }
 
   if (membershipsLoading) {
     return <ShellSkeleton />

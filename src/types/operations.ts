@@ -19,17 +19,31 @@ export interface BulkStatusFilter {
   fromStatus?: TranslationStatus[]
 }
 
+/** One cell: a key and a language. The unit a status actually moves. */
+export interface BulkStatusCell {
+  translationKeyId: Id
+  languageCode: string
+}
+
 export interface BulkStatusRequest {
   projectId: Id
   applicationId: Id
   status: TranslationStatus
-  /** Cells to touch. Omit to apply to every language present on each selected key. */
+  /**
+   * The exact cells ticked in the grid — arbitrary key × language pairs.
+   *
+   * This is what the console sends. A status belongs to a cell, not to a key: the German
+   * of a string can be ready to publish while its Japanese is still in review, so a
+   * selection that could only name whole keys forced the user to move both or neither.
+   */
+  cells?: BulkStatusCell[]
+  /** Languages to touch on each selected key. Omit for every language it has. */
   languageCodes?: string[]
-  /** Explicit selection, as ticked in the grid. */
+  /** Whole-key selection, for callers that work in keys rather than cells. */
   translationKeyIds?: Id[]
   /**
-   * Server-resolved selection. One of `translationKeyIds` or `filter` is required — the
-   * server refuses a call with neither rather than treating it as "everything".
+   * Server-resolved selection. One of `cells`, `translationKeyIds` or `filter` is required
+   * — the server refuses a call with none rather than treating it as "everything".
    */
   filter?: BulkStatusFilter
   /** Recorded on every history row the operation writes. */
@@ -55,7 +69,7 @@ export interface BulkStatusSkip {
 
 export interface BulkStatusResult {
   status: TranslationStatus
-  /** Cells considered — selected keys × requested languages. */
+  /** Cells considered — the exact selection, or selected keys × requested languages. */
   examined: number
   updated: number
   updatedKeys: number

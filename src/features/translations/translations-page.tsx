@@ -32,6 +32,16 @@ import { ENTITLEMENTS } from "@/lib/rbac"
 import { TRANSLATION_STATUS_FLOW, statusMeta } from "@/lib/translation-status"
 import type { Id } from "@/types/api"
 import type { TranslationKey, TranslationStatus } from "@/types/models"
+import {
+  cellRef,
+  pageCellRefs,
+  parseCellRef,
+  rowCellRefs,
+  summarizeSelection,
+  toggleCell,
+  toggleGroup,
+} from "./cell-selection"
+import type { CellRef } from "./cell-selection"
 import { AddKeyDialog } from "./components/add-key-dialog"
 import { BulkActionBar } from "./components/bulk-action-bar"
 import { BulkStatusDialog } from "./components/bulk-status-dialog"
@@ -95,7 +105,9 @@ export function TranslationsPage() {
   const [isAddKeyOpen, setAddKeyOpen] = useState(false)
   const [expanded, setExpanded] = useState<EditingCell | null>(null)
   const [isExportOpen, setExportOpen] = useState(false)
-  const [selected, setSelected] = useState<Set<Id>>(new Set())
+  // Keyed by cell, not by key: a status moves one language of one string, so the grid
+  // lets any cell of any row be ticked independently.
+  const [selected, setSelected] = useState<Set<CellRef>>(new Set())
   const [bulkStatus, setBulkStatus] = useState<TranslationStatus | null>(null)
 
   // The selected application is *derived*: switching project replaces the list, and a
@@ -119,8 +131,8 @@ export function TranslationsPage() {
   if (filterKey !== lastFilterKey) {
     setLastFilterKey(filterKey)
     setSkip(0)
-    // A selection is a set of ids from the previous result set. Carrying it across a
-    // filter change would let a bulk action hit keys the user can no longer see.
+    // A selection points at cells from the previous result set. Carrying it across a
+    // filter change would let a bulk action hit cells the user can no longer see.
     setSelected(new Set())
   }
 
@@ -173,31 +185,29 @@ export function TranslationsPage() {
     useMemo(() => rows.map((row) => row._id), [rows])
   )
 
-  const selectedIds = useMemo(() => Array.from(selected), [selected])
+  const selectedCells = useMemo(
+    () => Array.from(selected, parseCellRef),
+    [selected]
+  )
+  const selectionSummary = useMemo(
+    () => summarizeSelection(selected, visibleRows),
+    [selected, visibleRows]
+  )
+
+  // "Select all" means the cells actually on screen — including the client-side status
+  // filter — so what gets ticked always matches what the user can see.
+  const cellsOnPage = useMemo(
+    () => pageCellRefs(visibleRows, languageCodes),
+    [visibleRows, languageCodes]
+  )
   const allOnPageSelected =
-    visibleRows.length > 0 && visibleRows.every((row) => selected.has(row._id))
+    cellsOnPage.length > 0 && cellsOnPage.every((ref) => selected.has(ref))
 
-  const toggleRow = (id: Id) =>
-    setSelected((current) => {
-      const next = new Set(current)
-
-      if (next.has(id)) {
-        next.delete(id)
-      } else {
-        next.add(id)
-      }
-
-      return next
-    })
+  const toggleRow = (row: TranslationKey) =>
+    setSelected((current) => toggleGroup(current, rowCellRefs(row, languageCodes)))
 
   const toggleAllOnPage = () =>
-    setSelected((current) =>
-      // "Select all" means the rows actually on screen — including the client-side status
-      // filter — so what gets ticked always matches what the user can see.
-      current.size === visibleRows.length && visibleRows.length > 0
-        ? new Set()
-        : new Set(visibleRows.map((row) => row._id))
-    )
+    setSelected((current) => toggleGroup(current, cellsOnPage))
 
   const setCellValue = useSetCellValue()
   const setCellStatus = useSetCellStatus()
@@ -367,14 +377,12 @@ export function TranslationsPage() {
 
       {selected.size > 0 ? (
         <BulkActionBar
-          selectedCount={selected.size}
-          totalOnPage={visibleRows.length}
+          summary={selectionSummary}
+          totalOnPage={cellsOnPage.length}
           canEdit={canEdit}
           canApprove={canApprove}
           canPublish={canPublish}
-          onSelectAllOnPage={() =>
-            setSelected(new Set(visibleRows.map((row) => row._id)))
-          }
+          onSelectAllOnPage={() => setSelected(new Set(cellsOnPage))}
           onClear={() => setSelected(new Set())}
           onAction={setBulkStatus}
         />
@@ -447,7 +455,7 @@ export function TranslationsPage() {
                       <Checkbox
                         checked={allOnPageSelected}
                         onCheckedChange={toggleAllOnPage}
-                        aria-label="Select all keys on this page"
+                        aria-label="Select every cell on this page"
                       />
                     ) : null}
                     <span className="text-xs font-semibold text-muted-foreground">
@@ -488,9 +496,11 @@ export function TranslationsPage() {
                       {canEdit ? (
                         <Checkbox
                           className="mt-0.5"
-                          checked={selected.has(row._id)}
-                          onCheckedChange={() => toggleRow(row._id)}
-                          aria-label={`Select ${row.key}`}
+                          checked={rowCellRefs(row, languageCodes).every((ref) =>
+                            selected.has(ref)
+                          )}
+                          onCheckedChange={() => toggleRow(row)}
+                          aria-label={`Select every language of ${row.key}`}
                         />
                       ) : null}
                       <div className="min-w-0">
@@ -536,6 +546,13 @@ export function TranslationsPage() {
                         isSaving={setCellValue.isPending}
                         commentCount={
                           commentCounts.get(`${row._id}:${code}`) ?? 0
+                        }
+                        isSelected={selected.has(cellRef(row._id, code))}
+                        isSelecting={selected.size > 0}
+                        onToggleSelect={() =>
+                          setSelected((current) =>
+                            toggleCell(current, cellRef(row._id, code))
+                          )
                         }
                         onEdit={() => startEdit(row, code)}
                         onExpand={() => startExpandedEdit(row, code)}
@@ -649,9 +666,8 @@ export function TranslationsPage() {
         status={bulkStatus ?? "APPROVED"}
         projectId={projectId}
         applicationId={applicationId}
-        translationKeyIds={selectedIds}
-        languageCodes={languageCodes}
-        languageLabels={languageNames}
+        cells={selectedCells}
+        summary={selectionSummary}
         onDone={() => setSelected(new Set())}
       />
 

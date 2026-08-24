@@ -7,7 +7,6 @@ import { useMemo, useState } from "react"
 import { toast } from "sonner"
 
 import { FormField } from "@/components/common/form-field"
-import { MultiSelect } from "@/components/common/multi-select"
 import { StatusChip } from "@/components/common/status-chip"
 import { Alert, AlertDescription } from "@/components/ui/alert"
 import { Button } from "@/components/ui/button"
@@ -26,7 +25,20 @@ import { statusMeta } from "@/lib/translation-status"
 import type { Id } from "@/types/api"
 import type { TranslationStatus } from "@/types/models"
 import { SKIP_REASON_LABEL } from "@/types/operations"
-import type { BulkStatusResult, BulkStatusSkip } from "@/types/operations"
+import type {
+  BulkStatusCell,
+  BulkStatusResult,
+  BulkStatusSkip,
+} from "@/types/operations"
+import type { SelectionSummary } from "../cell-selection"
+
+const STATUS_ORDER: Array<TranslationStatus | "MISSING"> = [
+  "MISSING",
+  "DRAFT",
+  "REVIEW",
+  "APPROVED",
+  "PUBLISHED",
+]
 
 interface BulkStatusDialogProps {
   open: boolean
@@ -34,21 +46,21 @@ interface BulkStatusDialogProps {
   status: TranslationStatus
   projectId: Id | null
   applicationId: Id | null
-  /** The ticked keys. */
-  translationKeyIds: Id[]
-  /** Every language the application supports, as the scope options. */
-  languageCodes: string[]
-  languageLabels: Map<string, string>
+  /** The exact cells ticked in the grid. */
+  cells: BulkStatusCell[]
+  /** What those cells currently are, for the confirmation summary. */
+  summary: SelectionSummary
   onDone: () => void
 }
 
 /**
  * Confirms and runs a bulk status change.
  *
- * The dialog exists because a bulk action needs two things a toolbar button cannot give
- * it: a choice of *which languages* to move — approving a key rarely means approving
- * every locale of it — and somewhere to show what the server refused to do. A run that
- * silently moves 37 of 40 cells is the failure mode worth designing against.
+ * The selection already says which cells — it is a set of key × language pairs the user
+ * ticked — so this dialog no longer asks for a language scope. What it adds is the two
+ * things a toolbar button cannot: a last look at what the selection actually contains
+ * before a status moves, and somewhere to show what the server refused to do afterwards.
+ * A run that silently moves 37 of 40 cells is the failure mode worth designing against.
  */
 export function BulkStatusDialog({
   open,
@@ -56,36 +68,15 @@ export function BulkStatusDialog({
   status,
   projectId,
   applicationId,
-  translationKeyIds,
-  languageCodes,
-  languageLabels,
+  cells,
+  summary,
   onDone,
 }: BulkStatusDialogProps) {
-  const [scope, setScope] = useState<string[]>(languageCodes)
   const [note, setNote] = useState("")
   const [result, setResult] = useState<BulkStatusResult | null>(null)
   const bulkStatus = useBulkStatus()
 
-  // The language list changes when the user switches application; the scope follows it
-  // rather than keeping codes the new application does not have.
-  const [lastCodes, setLastCodes] = useState(languageCodes.join(","))
-  if (languageCodes.join(",") !== lastCodes) {
-    setLastCodes(languageCodes.join(","))
-    setScope(languageCodes)
-  }
-
   const meta = statusMeta(status)
-  const cellCount = translationKeyIds.length * scope.length
-
-  const languageOptions = useMemo(
-    () =>
-      languageCodes.map((code) => ({
-        value: code,
-        label: languageLabels.get(code) ?? code,
-        hint: code,
-      })),
-    [languageCodes, languageLabels]
-  )
 
   const close = () => {
     setResult(null)
@@ -94,7 +85,7 @@ export function BulkStatusDialog({
   }
 
   const run = () => {
-    if (!projectId || !applicationId || scope.length === 0) {
+    if (!projectId || !applicationId || cells.length === 0) {
       return
     }
 
@@ -103,8 +94,7 @@ export function BulkStatusDialog({
         projectId,
         applicationId,
         status,
-        translationKeyIds,
-        languageCodes: scope,
+        cells,
         comment: note.trim() || undefined,
       },
       {
@@ -129,14 +119,20 @@ export function BulkStatusDialog({
       <DialogContent className="sm:max-w-2xl">
         <DialogHeader>
           <DialogTitle className="flex items-center gap-2">
-            Set {translationKeyIds.length} key
-            {translationKeyIds.length === 1 ? "" : "s"} to
+            {/*
+              After a run the selection has been cleared, so `summary` is empty — the
+              heading has to describe the result rather than a selection that no longer
+              exists, or it reads "Set 0 cells to Published" over a list of what moved.
+            */}
+            {result
+              ? `Moved ${result.updated} of ${result.examined} cell${result.examined === 1 ? "" : "s"} to`
+              : `Set ${summary.cells} cell${summary.cells === 1 ? "" : "s"} to`}
             <StatusChip status={status} />
           </DialogTitle>
           <DialogDescription>
             {result
               ? "Here is what changed."
-              : "Choose which languages this applies to. The server checks each cell and skips the ones it cannot move."}
+              : `Across ${summary.keys} key${summary.keys === 1 ? "" : "s"}. The server checks each cell and skips the ones it cannot move.`}
           </DialogDescription>
         </DialogHeader>
 
@@ -144,21 +140,23 @@ export function BulkStatusDialog({
           <BulkResult result={result} />
         ) : (
           <div className="space-y-4">
-            <FormField
-              label="Languages"
-              required
-              hint={`${cellCount} cell${cellCount === 1 ? "" : "s"} will be checked.`}
-            >
-              {(props) => (
-                <MultiSelect
-                  {...props}
-                  options={languageOptions}
-                  value={scope}
-                  onChange={setScope}
-                  placeholder="Select languages"
-                />
-              )}
-            </FormField>
+            <div className="rounded-lg border p-3">
+              <p className="text-[11px] text-muted-foreground">
+                What you selected, by current status
+              </p>
+              <div className="mt-2 flex flex-wrap items-center gap-2">
+                {STATUS_ORDER.filter((item) => summary.byStatus.has(item)).map(
+                  (item) => (
+                    <span key={item} className="flex items-center gap-1">
+                      <StatusChip status={item} size="sm" />
+                      <span className="text-xs text-muted-foreground tabular-nums">
+                        {summary.byStatus.get(item)}
+                      </span>
+                    </span>
+                  )
+                )}
+              </div>
+            </div>
 
             <FormField
               label="Note"
@@ -183,6 +181,18 @@ export function BulkStatusDialog({
                 </AlertDescription>
               </Alert>
             ) : null}
+
+            {summary.empty > 0 && status !== "REVIEW" ? (
+              <Alert>
+                <AlertDescription>
+                  {summary.empty} selected cell
+                  {summary.empty === 1 ? " has" : "s have"} no text yet.
+                  Approving or publishing an empty string would ship a blank
+                  under a status that says a human checked it, so
+                  {summary.empty === 1 ? " it is" : " they are"} skipped.
+                </AlertDescription>
+              </Alert>
+            ) : null}
           </div>
         )}
 
@@ -196,7 +206,7 @@ export function BulkStatusDialog({
               </Button>
               <Button
                 onClick={run}
-                disabled={bulkStatus.isPending || scope.length === 0}
+                disabled={bulkStatus.isPending || cells.length === 0}
               >
                 {bulkStatus.isPending ? (
                   <>

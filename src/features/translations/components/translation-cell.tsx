@@ -11,6 +11,7 @@ import { useEffect, useRef } from "react"
 
 import { StatusChip } from "@/components/common/status-chip"
 import { Button } from "@/components/ui/button"
+import { Checkbox } from "@/components/ui/checkbox"
 import { Textarea } from "@/components/ui/textarea"
 import {
   Tooltip,
@@ -40,6 +41,11 @@ interface TranslationCellProps {
   canViewHistory: boolean
   isSaving: boolean
   commentCount: number
+  /** Whether this cell is ticked for a bulk action. */
+  isSelected: boolean
+  /** True while any selection is live, so every checkbox stays visible during one. */
+  isSelecting: boolean
+  onToggleSelect: () => void
   /** Inline edit — used for short values. */
   onEdit: () => void
   /** Opens the roomy dialog editor — used for long values, and always available. */
@@ -55,9 +61,15 @@ interface TranslationCellProps {
 /**
  * One language cell in the grid.
  *
- * Carries the status rail, the inline editor, and the workflow actions. Actions appear on
- * hover so a dense grid stays readable, and each one is gated by both permission *and*
- * status — a role with `approve` still cannot approve a cell that has nothing in it.
+ * Carries the status rail, the selection tick, the inline editor, and the workflow
+ * actions. Actions appear on hover so a dense grid stays readable, and each one is gated
+ * by both permission *and* status — a role with `approve` still cannot approve a cell that
+ * has nothing in it.
+ *
+ * The checkbox is the unit a bulk action works on: a status belongs to this cell, not to
+ * the whole key, so ticking the German of one string and the Japanese of another is a
+ * normal thing to want. It hides until hover unless it is ticked or a selection is already
+ * running — a checkbox on every cell of a full grid is visual noise the rest of the time.
  */
 export function TranslationCell({
   cell,
@@ -71,6 +83,9 @@ export function TranslationCell({
   canViewHistory,
   isSaving,
   commentCount,
+  isSelected,
+  isSelecting,
+  onToggleSelect,
   onEdit,
   onExpand,
   onSave,
@@ -124,6 +139,23 @@ export function TranslationCell({
         aria-hidden
       />
 
+      {canEdit && !isEditing ? (
+        <div
+          className={cn(
+            "absolute top-2.5 left-2.5 z-10 transition-opacity",
+            isSelected || isSelecting
+              ? "opacity-100"
+              : "opacity-0 group-hover/cell:opacity-100 focus-within:opacity-100"
+          )}
+        >
+          <Checkbox
+            checked={isSelected}
+            onCheckedChange={onToggleSelect}
+            aria-label={isSelected ? "Deselect cell" : "Select cell"}
+          />
+        </div>
+      ) : null}
+
       {isEditing ? (
         <div className="space-y-2 p-2.5 pl-3">
           <Textarea
@@ -147,7 +179,14 @@ export function TranslationCell({
           </div>
         </div>
       ) : (
-        <div className="min-h-[64px] p-2.5 pl-3 group-hover/cell:bg-muted/40">
+        <div
+          className={cn(
+            "min-h-[64px] p-2.5 pl-3 group-hover/cell:bg-muted/40",
+            // Room for the floating checkbox, but only where one is rendered.
+            canEdit && "pl-9",
+            isSelected && "bg-primary/5"
+          )}
+        >
           {/*
             The text itself is the edit target, not the whole cell: the action buttons
             live in this box too, and a click handler on the container would fire for
