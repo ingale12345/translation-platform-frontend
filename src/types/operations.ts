@@ -117,6 +117,11 @@ export interface TranslationExportResult {
   content: string
   languageCode: string
   templateId: Id
+  /**
+   * The version whose key set this file contains. `null` when nothing is published, in
+   * which case every active key was eligible.
+   */
+  publishedVersion: number | null
   statistics: TranslationExportStatistics
   jobId: Id | null
 }

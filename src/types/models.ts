@@ -55,8 +55,24 @@ export const TRANSLATION_STATUSES = [
 ] as const
 export type TranslationStatus = (typeof TRANSLATION_STATUSES)[number]
 
+/**
+ * What happened to a cell. Two families, and telling them apart matters.
+ *
+ * `CREATE`…`REVERT` are edits — the text changed, or it moved along the approval ladder.
+ * `PUBLISH` means the cell was **signed off**, not that anyone received it.
+ *
+ * `VERSION_*` are release events: the key was frozen into a numbered version, or a version
+ * carrying it went live and changed what applications actually receive.
+ */
 export type TranslationHistoryAction =
-  "CREATE" | "UPDATE" | "DELETE" | "APPROVE" | "PUBLISH" | "REVERT"
+  | "CREATE"
+  | "UPDATE"
+  | "DELETE"
+  | "APPROVE"
+  | "PUBLISH"
+  | "REVERT"
+  | "VERSION_FROZEN"
+  | "VERSION_PUBLISHED"
 
 /** Entitlement side: whether the platform offers this action for this feature at all. */
 export type EntitlementPermissions = Record<
@@ -417,9 +433,17 @@ export interface TranslationHistoryEntry extends Entity {
   /** Why the change was made — set by bulk operations, blank for a single edit. */
   comment?: string
   /**
+   * The version production was serving when this happened. `null` before anything is
+   * published. Lets an edit be placed against what users were seeing at the time.
+   */
+  publishedVersion?: number | null
+  /**
    * Free-form detail the server attached. `oldStatus` / `newStatus` are always present
    * when the status moved, which is what lets the timeline render "Review → Approved"
    * rather than a bare "updated".
+   *
+   * Release rows carry `version`, `membership` (added | dropped | restored), the
+   * `previousVersion` where there was one, and the `cellStatus` at the moment of release.
    */
   metadata?: Record<string, string>
 }

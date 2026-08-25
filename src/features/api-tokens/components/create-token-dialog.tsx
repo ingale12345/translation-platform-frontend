@@ -153,8 +153,8 @@ function CreateTokenBody({
       <DialogHeader>
         <DialogTitle>New API token</DialogTitle>
         <DialogDescription>
-          A read-only credential scoped to one application, for fetching its
-          published translations at runtime.
+          A read-only credential scoped to one application. It fetches whatever
+          that application&rsquo;s published version currently delivers.
         </DialogDescription>
       </DialogHeader>
 
@@ -307,11 +307,24 @@ function IssuedToken({
           <pre className="overflow-x-auto rounded-lg border bg-muted p-3 font-mono text-[11px] leading-relaxed">
             {curl}
           </pre>
-          <p className="mt-1.5 text-xs text-muted-foreground">
-            Returns published strings only. Add{" "}
-            <code className="font-mono">&amp;includeApproved=true</code> for a
-            staging build that wants the next release early.
-          </p>
+          <div className="mt-1.5 space-y-1 text-xs text-muted-foreground">
+            <p>
+              Two filters decide what comes back:{" "}
+              <strong className="font-medium text-foreground">
+                the published version
+              </strong>{" "}
+              chooses which keys exist, and each cell must be signed off to carry
+              a value. A key added since the last publish is not in the response,
+              even once its translation is approved.
+            </p>
+            <p>
+              The response includes{" "}
+              <code className="font-mono">publishedVersion</code> so a client can
+              tell which release it received. Add{" "}
+              <code className="font-mono">&amp;includeApproved=true</code> for a
+              staging build that wants the next release early.
+            </p>
+          </div>
         </div>
       </div>
 

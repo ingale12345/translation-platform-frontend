@@ -2,6 +2,8 @@ import {
   CheckIcon,
   PencilIcon,
   PlusIcon,
+  RocketIcon,
+  ScissorsIcon,
   SendIcon,
   TrashIcon,
   UndoIcon,
@@ -44,8 +46,11 @@ const ACTION_META: Record<
     icon: CheckIcon,
     tone: "bg-indigo-100 text-indigo-700 dark:bg-indigo-950 dark:text-indigo-300",
   },
+  // "Signed off", not "published" — this is the approval ladder reaching its top, which
+  // says nothing about whether anyone has received the string. VERSION_PUBLISHED below is
+  // the row that means delivery, and keeping the two verbs distinct is the whole point.
   PUBLISH: {
-    verb: "published it",
+    verb: "signed it off",
     icon: SendIcon,
     tone: "bg-emerald-100 text-emerald-700 dark:bg-emerald-950 dark:text-emerald-300",
   },
@@ -59,6 +64,50 @@ const ACTION_META: Record<
     icon: TrashIcon,
     tone: "bg-red-100 text-red-700 dark:bg-red-950 dark:text-red-300",
   },
+  VERSION_FROZEN: {
+    verb: "froze it into a version",
+    icon: ScissorsIcon,
+    tone: "bg-slate-200 text-slate-700 dark:bg-slate-800 dark:text-slate-300",
+  },
+  VERSION_PUBLISHED: {
+    verb: "released it",
+    icon: RocketIcon,
+    tone: "bg-violet-100 text-violet-700 dark:bg-violet-950 dark:text-violet-300",
+  },
+}
+
+const RELEASE_ACTIONS = new Set<TranslationHistoryAction>([
+  "VERSION_FROZEN",
+  "VERSION_PUBLISHED",
+])
+
+/** How a release row reads, given which version it names and why the key is in it. */
+const releaseSentence = (entry: TranslationHistoryEntry): string => {
+  const version = entry.metadata?.version
+  const membership = entry.metadata?.membership
+  const previous = entry.metadata?.previousVersion
+
+  if (entry.action === "VERSION_FROZEN") {
+    const how =
+      membership === "dropped"
+        ? "dropped from"
+        : membership === "restored"
+          ? "restored in"
+          : "added in"
+
+    return `${how} version ${version}`
+  }
+
+  const direction =
+    membership === "dropped"
+      ? "stopped being delivered"
+      : membership === "restored"
+        ? "delivered again"
+        : "started being delivered"
+
+  return previous
+    ? `${direction} — version ${previous} → ${version}`
+    : `${direction} — version ${version} went live`
 }
 
 interface HistoryTimelineProps {
@@ -141,10 +190,13 @@ function HistoryRow({
 }) {
   const meta = ACTION_META[entry.action] ?? ACTION_META.UPDATE
   const Icon = meta.icon
+  const isRelease = RELEASE_ACTIONS.has(entry.action)
   const oldStatus = entry.metadata?.oldStatus as TranslationStatus | undefined
   const newStatus = entry.metadata?.newStatus as TranslationStatus | undefined
   const statusMoved = Boolean(oldStatus && newStatus && oldStatus !== newStatus)
   const valueChanged = (entry.oldValue ?? "") !== (entry.newValue ?? "")
+  // A release row carries no value diff — nothing was rewritten, only delivered.
+  const cellStatus = entry.metadata?.cellStatus as TranslationStatus | undefined
 
   return (
     <li className="relative flex gap-3">
@@ -172,7 +224,29 @@ function HistoryRow({
           title={formatDateTime(entry.changedAt)}
         >
           {formatRelative(entry.changedAt)}
+          {/*
+            What production was serving at the time. Shown only on edits: on a release row
+            the version *is* the event, and printing it twice reads as two versions.
+          */}
+          {!isRelease && entry.publishedVersion ? (
+            <> · v{entry.publishedVersion} was live</>
+          ) : null}
         </p>
+
+        {isRelease ? (
+          <div className="mt-2 space-y-1.5">
+            <p className="rounded border-l-2 border-violet-300 bg-violet-50/60 px-2 py-1 text-xs text-violet-900 dark:border-violet-900 dark:bg-violet-950/40 dark:text-violet-200">
+              {releaseSentence(entry)}
+            </p>
+            {entry.action === "VERSION_FROZEN" && cellStatus !== "PUBLISHED" ? (
+              <p className="flex items-center gap-1.5 text-[11px] text-muted-foreground">
+                This cell was <StatusChip status={cellStatus} size="sm" /> when
+                the version was frozen, so it is in the release but not delivered
+                until it is signed off.
+              </p>
+            ) : null}
+          </div>
+        ) : null}
 
         {statusMoved ? (
           <div className="mt-2 flex items-center gap-1.5">

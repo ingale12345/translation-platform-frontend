@@ -132,8 +132,9 @@ export function ExportDialog({
         <DialogHeader>
           <DialogTitle>Export translations</DialogTitle>
           <DialogDescription>
-            One file, one language. Approved and published translations are
-            included; everything else exports empty.
+            One file, one language. Two filters apply: the file contains the keys
+            in the published version, and only cells that are approved or signed
+            off carry a value.
           </DialogDescription>
         </DialogHeader>
 
@@ -257,7 +258,18 @@ function ExportSummary({ result }: { result: TranslationExportResult }) {
 
   return (
     <div className="space-y-4">
-      <p className="font-mono text-sm">{result.fileName}</p>
+      <div className="flex flex-wrap items-baseline justify-between gap-2">
+        <p className="font-mono text-sm">{result.fileName}</p>
+        {/*
+          Which snapshot this file is of. Without it, "why is my new string missing"
+          has no checkable answer — the key may simply not be in the live version yet.
+        */}
+        <p className="text-xs text-muted-foreground">
+          {result.publishedVersion === null
+            ? "no published version — all active keys"
+            : `keys from version ${result.publishedVersion}`}
+        </p>
+      </div>
 
       <div className="grid grid-cols-3 gap-3">
         <Stat label="Keys" value={statistics.total} />
@@ -290,6 +302,18 @@ function ExportSummary({ result }: { result: TranslationExportResult }) {
         <Alert variant="destructive">
           <AlertDescription>
             Nothing in this language is approved yet, so the file is empty.
+          </AlertDescription>
+        </Alert>
+      ) : null}
+
+      {result.publishedVersion === null ? (
+        <Alert>
+          <InfoIcon className="size-4" />
+          <AlertDescription>
+            This application has no published version, so the file contains every
+            active key. Once a version is published, exports contain that
+            version's key set instead — a key added afterwards will not appear
+            until the next version is published.
           </AlertDescription>
         </Alert>
       ) : null}
