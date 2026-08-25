@@ -348,13 +348,20 @@ export interface TranslationKey extends Entity {
 
   /**
    * Import lifecycle. A key a later import no longer contains is disabled rather than
-   * deleted: it keeps its translations, its conversation and its history, drops out of
-   * exports and the runtime API, and comes back whole if the key reappears.
+   * deleted: it keeps its translations, its conversation and its history, drops out of the
+   * grid, and comes back whole if the key reappears.
    */
   rowStatus?: RowStatus
   origin?: KeyOrigin
+
+  /**
+   * Release membership, stamped when a version is frozen — never by an import.
+   *
+   * `firstSeenVersion` absent means the key has never been part of a release, so nothing
+   * delivers it yet. The drop is kept alongside the restore rather than cleared, because
+   * both stay true and which one applies depends on the version being served.
+   */
   firstSeenVersion?: number
-  lastSeenVersion?: number
   disabledInVersion?: number | null
   restoredInVersion?: number | null
   disabledAt?: string | null

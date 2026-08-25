@@ -65,7 +65,7 @@ const ACTION_META: Record<
     tone: "bg-red-100 text-red-700 dark:bg-red-950 dark:text-red-300",
   },
   VERSION_FROZEN: {
-    verb: "froze it into a version",
+    verb: "froze a version containing it",
     icon: ScissorsIcon,
     tone: "bg-slate-200 text-slate-700 dark:bg-slate-800 dark:text-slate-300",
   },
@@ -93,7 +93,9 @@ const releaseSentence = (entry: TranslationHistoryEntry): string => {
         ? "dropped from"
         : membership === "restored"
           ? "restored in"
-          : "added in"
+          : membership === "included"
+            ? "carried into"
+            : "added in"
 
     return `${how} version ${version}`
   }

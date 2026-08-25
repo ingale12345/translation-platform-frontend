@@ -10,6 +10,7 @@ import {
 } from "@/components/ui/sheet"
 import { cn } from "@/lib/utils"
 import type { TranslationKey } from "@/types/models"
+import { CellReleaseState } from "./cell-release-state"
 import { CommentThread } from "./comment-thread"
 import { HistoryTimeline } from "./history-timeline"
 
@@ -76,6 +77,12 @@ export function CellDrawer({
               {cell.value}
             </p>
           ) : null}
+
+          {/*
+            Above the tabs on purpose: "is this live?" is the question people open this
+            panel to answer, and it should not require choosing a tab first.
+          */}
+          <CellReleaseState translationKey={translationKey} cell={cell} />
         </SheetHeader>
 
         {canViewHistory ? (
