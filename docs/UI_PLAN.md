@@ -38,7 +38,8 @@ Login
     ├─ Data
     │   ├── Templates     TEMPLATES:read
     │   ├── Import        IMPORT:read
-    │   └── Export        EXPORT:read
+    │   ├── Export        EXPORT:read
+    │   └── Versions      TRANSLATIONS:read      ← publish is TRANSLATIONS:publish
     └─ System
         ├── Audit Log     AUDIT_LOGS:read
         └── Settings      SETTINGS:read
@@ -68,7 +69,7 @@ invention:
 |---|---|
 | **Grid** — sticky header + sticky first column, inline edit | Translations |
 | **Master / detail** — list rail on the left, document on the right | Roles, Templates |
-| **Table** — `PageHeader` + `DataTable` + `Pagination` | Members, API Tokens, Languages, Import, Export |
+| **Table** — `PageHeader` + `DataTable` + `Pagination` | Members, API Tokens, Languages, Import, Export, Versions |
 | **Card grid** — `PageHeader` + responsive cards | Applications |
 | **Tabbed form** — `PageHeader` + `Tabs` + explicit save | Settings |
 | **Feed** — infinite list of events | Audit Log, Dashboard activity |
@@ -123,7 +124,7 @@ The signature surface. Keys down the side, languages across the top.
 
 | Element | Behaviour |
 |---|---|
-| Toolbar | Application select · debounced key search · status filter · Add key · Import / Export (all permission-gated) |
+| Toolbar | Application select · debounced key search · status filter · Add key · Import / Export · Freeze version (all permission-gated) |
 | Coverage strip | % APPROVED-or-PUBLISHED per language, **for the loaded page** |
 | Grid | Sticky header and key column; each cell has a status rail, value, chip and hover actions |
 | Selection | Checkbox per key and in the header. Cleared on any filter or page change — a selection is a set of ids from the previous result set, and carrying it over would let a bulk action hit rows the user can no longer see |
@@ -175,7 +176,7 @@ previous cell's data for a frame.
 | Status filter runs client-side | Filters the current page, not the project. Labelled as such in the UI. | Backend `GET /translation-keys/by-status` or a denormalised `statusSummary` field |
 | Search matches `key` only, not values | Cannot find "the key whose Japanese says X" | Backend `GET /translation-keys/search?q=` across the nested map |
 | Cell writes send the whole `translations` object | Two people editing *different languages of the same key* within one round-trip can clobber each other | `PATCH /translation-keys/:id/cell`, or a version field for optimistic concurrency |
-| Import button is inert | Gated and visible, but disabled | §3.8 — needs a backend upload endpoint |
+| Import button is inert | ~~Gated and visible, but disabled~~ — now opens the wizard | ✅ §3.8 |
 
 ### 3.4 Roles — ✅ built
 
@@ -258,30 +259,58 @@ archive as a distinct action from delete.
 
 **Next:** drag-to-reorder the enabled list (writes `sortOrder`).
 
-### 3.8 Import — job history ✅ · wizard blocked
+### 3.8 Import — ✅ built
 
-**Built:** the job history table — file, application, language, status, per-run statistics,
-and expandable per-line errors.
-
-**Not built, deliberately:** the upload wizard. `POST /import-jobs` records a job, but
-nothing transfers or parses the file, so a job started from the console would sit at
-`QUEUED` forever. The page says so instead of offering a button that produces a dead
-record.
-
-**Pattern when it lands:** wizard, then the existing job table.
+**Built:** the run log, and the wizard that produces it.
 
 ```
-1 Source      application · language · template
-2 Upload      drag-and-drop, extension validated against the template
-3 Preview     diff: added / updated / unchanged / skipped / failed, per key
-4 Apply       confirm, then poll the job
+1 Source      application · format · language · default namespace
+2 Upload      drag-and-drop or picker, extension matched to the template, 8 MB cap
+3 Preview     dry run — added / changed / restored / disabled, disabled listed first
+4 Apply       same payload, dryRun off
 ```
 
-- Job history table below: file, language, status, statistics, duration. Failed rows expand
-  to the per-line `errors[]`.
-- **Depends on:** file upload — the service has `filePath`, so the backend needs a multipart
-  endpoint or a signed-URL flow, plus the `POST /import-jobs/:id/preview` and `/apply`
-  methods that `docs/API.md` lists as planned.
+The preview is not optional and not a separate code path: both steps call
+`POST /translations/import` with the same body, differing only in `dryRun`. A preview built
+by different code would eventually disagree with the thing it claims to predict.
+
+It leads with the count of keys about to be **disabled**, not added. Import is the only
+operation here that can take strings away, and the person running it is usually a developer
+who exported from a branch and has no idea the file is missing half the app.
+
+**Importing releases nothing.** It reconciles the working set and writes an `import-jobs`
+receipt — no version, no change to what any application receives. The page says so and
+links to Versions. See §3.8b.
+
+- Run log below: file, application, language, status, per-run statistics, expandable
+  per-line errors.
+- No queue and no polling: the endpoint parses and reconciles synchronously, so a run has
+  succeeded or failed by the time the dialog closes.
+
+### 3.8b Versions — ✅ built
+
+The release surface. Three acts, deliberately separate:
+
+```
+import   →  changes the working set          (§3.8)
+freeze   →  numbered snapshot of it          DRAFT
+publish  →  production points at it          exactly one PUBLISHED per application
+```
+
+- **Live banner** names the published version, who published it, and how many newer
+  versions are unshipped. "Nothing published" is called out as a real state — the
+  application then delivers every active key, as if versioning were off.
+- **Freeze** is offered here *and* in the Translations toolbar. The decision is made when
+  someone finishes reviewing the last string; sending them to another screen to say so
+  invites the step being forgotten.
+- **Publish / Roll back** — the same operation, labelled by direction. The confirm names
+  how many keys start and stop being delivered, and says plainly that a rollback changes
+  only which key set ships, never the translations themselves.
+- Gated on `TRANSLATIONS:publish`, **not** `IMPORT`. Reviewer is the role whose job is
+  releasing and it has no import permission at all; behind the import gate this screen
+  would be invisible to exactly the people who need it.
+- Application is chosen per screen, defaulting to the most recently released one — version
+  numbers are per application, and a merged list would put two unrelated "v3"s side by side.
 
 ### 3.9 Export — ✅ built
 
@@ -321,21 +350,19 @@ set (`{key}`, `{value}`, `{namespace}`, `{language}`, `{index}`); the authoritat
 renderer is the export worker, which does not exist yet. **If the worker adopts different
 tokens, this preview becomes a lie — change both together.**
 
-### 3.11 API Tokens — list and revoke ✅ · create blocked
+### 3.11 API Tokens — ✅ built
 
 **Built:** the table — name, `tokenPrefix`, application, scope, last used, expiry — plus
-revoke and delete.
+create, revoke and delete.
 
 - Revoke is a `PATCH { enabled: false }`, not a delete, so the audit trail keeps the
   record. The delete confirm says as much.
-
-**Not built, deliberately:** creating a token. `apiTokensDataSchema` accepts `tokenHash`
-from the client, which would mean the browser minting the secret *and* choosing its own
-hash — a credential nobody can trust. The server has to generate both and return the
-plaintext exactly once. Withheld rather than shipped broken.
-
-**When it lands:** show the plaintext in a dialog after create, with a copy button and an
-unmissable "you will not see this again".
+- **Create shows the secret once.** The server mints it and stores only a SHA-256 hash and
+  the visible prefix, so after the dialog closes there is nowhere to read it from. The
+  panel says that outright rather than implying a "reveal" that cannot exist.
+- The issued panel carries a ready-to-run `curl`, and states the two filters that decide
+  what comes back: the **published version** chooses which keys exist, and each cell must
+  be signed off to carry a value.
 
 ### 3.12 Audit Log — ✅ built
 
@@ -400,15 +427,15 @@ decisions — each entry names the item in §5 it waits on.
 | 3 | Members invite flow | ✅ |
 | 4 | Roles create / duplicate / delete | ✅ |
 | 5 | Templates + preview | ✅ |
-| 6 | Export — start a job | Blocked on §5 item 6 (render worker) |
-| 7 | Import wizard | Blocked on §5 item 7 (upload endpoint) |
-| 8 | API Tokens — create | Blocked on §5 item 8 (server-minted tokens) |
-| 9 | Audit Log | ✅ UI · empty until §5 item 9 writes logs |
+| 6 | Export — start a job | ✅ — rendered synchronously |
+| 7 | Import wizard | ✅ — file read client-side, parsed server-side, dry-run preview |
+| 8 | API Tokens — create | ✅ — server-minted, plaintext shown once |
+| 9 | Audit Log | ✅ — `recordActivity` writes them |
 | 10 | Settings | ✅ except archive, which needs §5 item 4 |
 | 11 | Dashboard | ✅ sampled · exact once §5 item 4 lands |
 
-Nothing in the console now depends on further UI design to be useful. The next meaningful
-increment is backend.
+Nothing in the console now depends on further UI design to be useful. The remaining open
+items are backend correctness, not screens.
 
 ---
 
@@ -425,11 +452,12 @@ console.
 | 4 | Server-side status aggregate (or a denormalised `statusSummary`) | Translations status filter beyond one page · exact dashboard figures · archive confirm counts | open |
 | 5 | Search across translated values | Finding a key by its content | open |
 | 6 | Export renderer | Starting an export | **done** — `POST /translations/export` |
-| 7 | File upload + parse for import | Import wizard | open |
-| 8 | Server-minted API tokens, plaintext returned once | Creating API tokens | open |
-| 9 | Activity logs actually written | Audit Log has UI but no data | open |
+| 7 | File upload + parse for import | Import wizard | **done** — `POST /translations/import`, content in the body |
+| 8 | Server-minted API tokens, plaintext returned once | Creating API tokens | **done** |
+| 9 | Activity logs actually written | Audit Log has UI but no data | **done** — `hooks/record-activity.ts` |
 | 10 | System roles seeded per project | A fresh project has no roles at all | open |
 | 11 | Single-cell patch, or optimistic concurrency on `translations` | Concurrent cell edits clobbering each other | open |
+| 12 | Cascade or soft-archive on `DELETE /projects/:id` | Deleting a project orphans its roles, members, applications, keys, versions and history | open |
 | 12 | Refresh tokens | Sessions end at JWT expiry (1 day) | open |
 | 13 | Template render engine matching `lib/template-preview.ts` tokens | The preview is only truthful if the renderer agrees | **done** — both sides substitute `$key` in one pass |
 | 14 | Bulk status endpoint | Approving a release without clicking every cell | **done** — `POST /translations/bulk-status` |
