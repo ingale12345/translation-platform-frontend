@@ -1,18 +1,19 @@
 import {
+  ArrowRightIcon,
   ChevronDownIcon,
   ChevronRightIcon,
-  InfoIcon,
   UploadIcon,
 } from "lucide-react"
 import { useState } from "react"
 
+import { AppLink } from "@/components/common/app-link"
 import { DataTable } from "@/components/common/data-table"
 import type { DataTableColumn } from "@/components/common/data-table"
 import { EmptyState } from "@/components/common/empty-state"
 import { PageHeader } from "@/components/common/page-header"
-import { Alert, AlertDescription } from "@/components/ui/alert"
 import { Button } from "@/components/ui/button"
 import { useAllApplications } from "@/features/applications/hooks"
+import { ImportDialog } from "@/features/import-jobs/components/import-dialog"
 import { useImportJobs } from "@/features/import-jobs/hooks"
 import { useActiveProjectId, usePermissions } from "@/features/session/hooks"
 import { formatDateTime, formatRelative } from "@/lib/format"
@@ -22,18 +23,25 @@ import type { ImportJob } from "@/types/models"
 import { JobStatusBadge } from "./components/job-status-badge"
 
 /**
- * Import job history.
+ * The import runner, and the log of what previous runs did.
  *
- * The upload wizard is not here yet, and starting a job would be dishonest without it:
- * `POST /import-jobs` records a job, but nothing transfers the file or parses it, so
- * every job created from the console would sit at QUEUED forever. What the wizard needs
- * is item 7 in docs/UI_PLAN.md §5.
+ * There is no queue behind this. `POST /translations/import` parses and reconciles
+ * synchronously and returns the result, so a run has either succeeded or failed by the
+ * time the dialog closes — nothing waits for a worker that would have to exist.
+ *
+ * An import changes the **working set** and nothing else. It does not cut a release and
+ * does not touch what any application is being served: keys appear, keys stop being
+ * referenced, and the strings people work on move accordingly. Turning that into something
+ * users see takes two further deliberate steps, both on the Versions page — freeze a
+ * version, then publish it.
  */
 export function ImportPage() {
   const projectId = useActiveProjectId()
   const { can } = usePermissions()
   const canCreate = can(ENTITLEMENTS.IMPORT, "create")
+  const canSeeVersions = can(ENTITLEMENTS.TRANSLATIONS, "read")
 
+  const [isDialogOpen, setDialogOpen] = useState(false)
   const [expanded, setExpanded] = useState<Id | null>(null)
 
   const jobsQuery = useImportJobs(
@@ -51,13 +59,17 @@ export function ImportPage() {
     ])
   )
 
+  const jobs = jobsQuery.data?.data ?? []
+
   const columns: DataTableColumn<ImportJob>[] = [
     {
       id: "file",
       header: "File",
       cell: (job) => (
-        <div>
-          <p className="font-mono text-xs font-medium">{job.fileName}</p>
+        <div className="min-w-0">
+          <p className="truncate font-mono text-xs font-medium">
+            {job.fileName}
+          </p>
           <p className="text-[11px] text-muted-foreground">
             {applicationName.get(job.applicationId) ?? "unknown"} ·{" "}
             {job.languageCode}
@@ -68,6 +80,7 @@ export function ImportPage() {
     {
       id: "status",
       header: "Status",
+      className: "w-28",
       cell: (job) => <JobStatusBadge status={job.status} />,
     },
     {
@@ -76,27 +89,42 @@ export function ImportPage() {
       cell: (job) => (
         <div className="flex flex-wrap gap-2 text-[11px] tabular-nums">
           <Stat
-            label="added"
+            label="new"
             value={job.statistics?.added}
             tone="text-emerald-600"
           />
           <Stat
-            label="updated"
+            label="changed"
             value={job.statistics?.updated}
             tone="text-sky-600"
           />
-          <Stat label="skipped" value={job.statistics?.skipped} />
           <Stat
-            label="failed"
+            label="restored"
+            value={job.statistics?.restored}
+            tone="text-violet-600"
+          />
+          <Stat
+            label="disabled"
+            value={job.statistics?.disabled}
+            tone="text-destructive"
+          />
+          <Stat
+            label="unreadable"
             value={job.statistics?.failed}
             tone="text-destructive"
           />
+          {!job.statistics?.added &&
+          !job.statistics?.updated &&
+          !job.statistics?.restored &&
+          !job.statistics?.disabled ? (
+            <span className="text-muted-foreground">no change</span>
+          ) : null}
         </div>
       ),
     },
     {
       id: "when",
-      header: "Started",
+      header: "Imported",
       cell: (job) => (
         <span
           className="text-xs text-muted-foreground"
@@ -118,43 +146,47 @@ export function ImportPage() {
             onClick={() => setExpanded(expanded === job._id ? null : job._id)}
             aria-expanded={expanded === job._id}
           >
-            {job.errors.length} error{job.errors.length === 1 ? "" : "s"}
+            {job.errors.length} skipped
             {expanded === job._id ? <ChevronDownIcon /> : <ChevronRightIcon />}
           </Button>
         ) : null,
     },
   ]
 
-  const expandedJob = jobsQuery.data?.data.find((job) => job._id === expanded)
+  const expandedJob = jobs.find((job) => job._id === expanded)
 
   return (
     <div className="p-5">
       <PageHeader
         title="Import"
-        description="Bring translations in from a file, and review what each run changed."
+        description="A file describes what the code contains now. Importing reconciles the working set against it — it does not release anything."
         actions={
           canCreate ? (
-            <Button disabled>
+            <Button onClick={() => setDialogOpen(true)}>
               <UploadIcon /> New import
             </Button>
           ) : null
         }
       />
 
-      {canCreate ? (
-        <Alert className="mb-4">
-          <InfoIcon />
-          <AlertDescription>
-            The upload wizard is not built yet. The API records import jobs but
-            has no endpoint to receive a file or parse it, so a job started here
-            would never leave the queue.
-          </AlertDescription>
-        </Alert>
+      {jobs.length > 0 && canSeeVersions ? (
+        <div className="mb-4 flex flex-wrap items-center gap-3 rounded-lg border bg-muted/30 px-4 py-3">
+          <p className="text-sm text-muted-foreground">
+            Imported changes are visible in Translations, but not to your
+            applications. Freeze a version and publish it to ship them.
+          </p>
+          <AppLink
+            to="/versions"
+            className="ms-auto inline-flex items-center gap-1 text-sm font-medium text-primary hover:underline"
+          >
+            Go to Versions <ArrowRightIcon className="size-3.5" />
+          </AppLink>
+        </div>
       ) : null}
 
       <DataTable
         columns={columns}
-        rows={jobsQuery.data?.data ?? []}
+        rows={jobs}
         rowKey={(job) => job._id}
         isLoading={jobsQuery.isLoading}
         error={jobsQuery.error}
@@ -162,7 +194,11 @@ export function ImportPage() {
           <EmptyState
             icon={UploadIcon}
             title="No imports yet"
-            body="Import runs and their per-row results will be listed here."
+            body={
+              canCreate
+                ? "Import a JSON, ARB, .properties or CSV file to bring an application's keys in from the code."
+                : "Import runs and what each one changed will be listed here."
+            }
           />
         }
       />
@@ -170,7 +206,7 @@ export function ImportPage() {
       {expandedJob?.errors?.length ? (
         <div className="mt-3 rounded-lg border bg-muted/30 p-4">
           <p className="mb-2 text-sm font-medium">
-            Errors in {expandedJob.fileName}
+            Lines skipped in {expandedJob.fileName}
           </p>
           <ol className="space-y-1.5">
             {expandedJob.errors.map((error, index) => (
@@ -189,6 +225,8 @@ export function ImportPage() {
           </ol>
         </div>
       ) : null}
+
+      <ImportDialog open={isDialogOpen} onOpenChange={setDialogOpen} />
     </div>
   )
 }

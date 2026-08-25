@@ -54,6 +54,7 @@ import type {
   TranslationCommentPatch,
   TranslationHistoryEntry,
   TranslationVersion,
+  TranslationVersionCreate,
   TranslationVersionPatch,
   TranslationKey,
   TranslationKeyCreate,
@@ -146,13 +147,15 @@ export const translationKeysService = createResourceService<
 >("translation-keys")
 
 /**
- * Versions are created by the import endpoint, never by a client — the statistics on one
- * are a measurement of what an import did, not a claim a caller gets to make. `patch` is
- * how a version is published.
+ * `create` cuts a version, `patch` publishes one.
+ *
+ * The create payload names the application and nothing else that matters: the version
+ * number and the statistics are the server's to compute, because they measure what
+ * freezing the key set actually did rather than what a caller claims it did.
  */
 export const translationVersionsService = createResourceService<
   TranslationVersion,
-  never,
+  TranslationVersionCreate,
   TranslationVersionPatch
 >("translation-versions")
 

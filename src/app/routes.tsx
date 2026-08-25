@@ -159,6 +159,13 @@ export const routeTree = rootRoute.addChildren([
       )
     ),
     page(
+      "/versions",
+      lazyPage(
+        () => import("@/features/translation-versions/versions-page"),
+        (module) => module.VersionsPage
+      )
+    ),
+    page(
       "/audit",
       lazyPage(
         () => import("@/features/activity-logs/audit-page"),

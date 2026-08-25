@@ -4,14 +4,16 @@ import type {
   BulkStatusResult,
   TranslationExportRequest,
   TranslationExportResult,
+  TranslationImportRequest,
+  TranslationImportResult,
 } from "@/types/operations"
 
 /**
- * Translation operations — the two endpoints that act rather than store.
+ * Translation operations — the endpoints that act rather than store.
  *
  * They go through the same axios instance as every resource, so they inherit the auth
  * header, the tenant headers and the error normalisation. What they do not inherit is
- * `createResourceService`, because neither has a collection to list or an id to get.
+ * `createResourceService`, because none of them has a collection to list or an id to get.
  */
 export const translationOperationsService = {
   /**
@@ -42,6 +44,29 @@ export const translationOperationsService = {
   ): Promise<TranslationExportResult> {
     const { data } = await http.post<TranslationExportResult>(
       "/translations/export",
+      request
+    )
+
+    return data
+  },
+
+  /**
+   * `POST /translations/import` — reconcile the application's key set against a file.
+   *
+   * Called twice for every real import: once with `dryRun: true` to build the preview, and
+   * again without it to commit. That is not a round trip wasted — the whole point of the
+   * preview is that it is produced by the same code that will do the work, so what the
+   * user approves and what happens cannot drift apart.
+   *
+   * The file never leaves the request. Its text rides in the body and is parsed
+   * synchronously; nothing is stored, so there is no upload to resume and no artifact to
+   * clean up.
+   */
+  async runImport(
+    request: TranslationImportRequest
+  ): Promise<TranslationImportResult> {
+    const { data } = await http.post<TranslationImportResult>(
+      "/translations/import",
       request
     )
 

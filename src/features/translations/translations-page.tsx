@@ -4,6 +4,7 @@ import {
   InfoIcon,
   PlusIcon,
   SearchIcon,
+  ScissorsIcon,
   UploadIcon,
 } from "lucide-react"
 import { useMemo, useState } from "react"
@@ -19,6 +20,9 @@ import { SelectField } from "@/components/common/select-field"
 import { Skeleton } from "@/components/ui/skeleton"
 import { useAllApplications } from "@/features/applications/hooks"
 import { ExportDialog } from "@/features/export-jobs/components/export-dialog"
+import { ImportDialog } from "@/features/import-jobs/components/import-dialog"
+import { CutVersionDialog } from "@/features/translation-versions/components/cut-version-dialog"
+import { useTranslationVersions } from "@/features/translation-versions/hooks"
 import { useAllLanguages } from "@/features/languages/hooks"
 import { useActiveProjectId, usePermissions } from "@/features/session/hooks"
 import {
@@ -78,6 +82,7 @@ export function TranslationsPage() {
   const canComment = can(ENTITLEMENTS.TRANSLATION_COMMENTS, "create")
   const canImport = can(ENTITLEMENTS.IMPORT, "create")
   const canExport = can(ENTITLEMENTS.EXPORT, "download")
+  const canRelease = can(ENTITLEMENTS.TRANSLATIONS, "publish")
   // Cell history lives in `translation-history`, which the server guards with AUDIT_LOGS.
   // An external reviewer has comments but not the audit trail.
   const canViewHistory = can(ENTITLEMENTS.AUDIT_LOGS, "read")
@@ -111,6 +116,8 @@ export function TranslationsPage() {
   const [isAddKeyOpen, setAddKeyOpen] = useState(false)
   const [expanded, setExpanded] = useState<EditingCell | null>(null)
   const [isExportOpen, setExportOpen] = useState(false)
+  const [isImportOpen, setImportOpen] = useState(false)
+  const [isCutOpen, setCutOpen] = useState(false)
   // Keyed by cell, not by key: a status moves one language of one string, so the grid
   // lets any cell of any row be ticked independently.
   const [selected, setSelected] = useState<Set<CellRef>>(new Set())
@@ -125,6 +132,15 @@ export function TranslationsPage() {
     applications.find((item) => item._id === requestedApplicationId) ??
     applications[0]
   const applicationId = application?._id ?? null
+
+  // Only for the freeze dialog's copy — which version is live, and what number is next.
+  const versionsQuery = useTranslationVersions(
+    { where: { applicationId: applicationId ?? "" }, sortDesc: "version", limit: 100 },
+    { enabled: Boolean(applicationId) }
+  )
+  const publishedVersion =
+    versionsQuery.data?.data.find((item) => item.status === "PUBLISHED") ?? null
+  const latestVersion = versionsQuery.data?.data[0] ?? null
 
   /**
    * Any filter change invalidates the current offset — staying on page 4 of a new result
@@ -370,7 +386,11 @@ export function TranslationsPage() {
 
         <div className="ml-auto flex items-center gap-2">
           {canImport ? (
-            <Button variant="outline" size="sm" disabled>
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => setImportOpen(true)}
+            >
               <UploadIcon /> Import
             </Button>
           ) : null}
@@ -386,6 +406,22 @@ export function TranslationsPage() {
           {canCreate ? (
             <Button size="sm" onClick={() => setAddKeyOpen(true)}>
               <PlusIcon /> Add key
+            </Button>
+          ) : null}
+          {/*
+            Freezing lives here as well as on Versions because this is where the decision
+            is actually made. Somebody finishes reviewing the last string and *then* knows
+            the release is ready — sending them to another screen to say so invites the
+            step being forgotten, which is the failure the whole mechanism exists to catch.
+          */}
+          {canRelease ? (
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => setCutOpen(true)}
+              disabled={!application}
+            >
+              <ScissorsIcon /> Freeze version
             </Button>
           ) : null}
         </div>
@@ -714,6 +750,20 @@ export function TranslationsPage() {
         cells={selectedCells}
         summary={selectionSummary}
         onDone={() => setSelected(new Set())}
+      />
+
+      <ImportDialog
+        open={isImportOpen}
+        onOpenChange={setImportOpen}
+        defaultApplicationId={applicationId}
+      />
+
+      <CutVersionDialog
+        open={isCutOpen}
+        onOpenChange={setCutOpen}
+        application={application}
+        published={publishedVersion}
+        latest={latestVersion}
       />
 
       <ExportDialog

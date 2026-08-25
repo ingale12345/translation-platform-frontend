@@ -120,3 +120,82 @@ export interface TranslationExportResult {
   statistics: TranslationExportStatistics
   jobId: Id | null
 }
+
+/* -------------------------------------------------------------------------- *
+ * Import
+ * -------------------------------------------------------------------------- */
+
+export interface TranslationImportRequest {
+  projectId: Id
+  applicationId: Id
+  templateId: Id
+  /** The file's language. Defaults to the application's source language. */
+  languageCode?: string
+  fileName: string
+  content: string
+  /** Namespace for keys the file gives no dotted prefix. */
+  defaultNamespace?: string
+  /**
+   * Parse and reconcile, report, write nothing.
+   *
+   * The console always runs this first. "This will disable 47 keys" is something a person
+   * has to see *before* the import, not discover afterwards.
+   */
+  dryRun?: boolean
+  note?: string
+}
+
+export type ImportChangeKind =
+  | "added"
+  | "updated"
+  | "unchanged"
+  | "disabled"
+  | "restored"
+
+export interface ImportChange {
+  namespace: string
+  key: string
+  change: ImportChangeKind
+  oldValue?: string
+  newValue?: string
+}
+
+export interface ImportStatistics {
+  /** Keys in the file. */
+  total: number
+  added: number
+  updated: number
+  unchanged: number
+  /** Present before, absent from this file — disabled, not deleted. */
+  disabled: number
+  /** Disabled by an earlier import and back in this one, translations intact. */
+  restored: number
+  /** Console-created keys the file did not mention, and which were left alone. */
+  manualUntouched: number
+}
+
+export interface ImportError {
+  line?: number
+  key?: string
+  message: string
+}
+
+export interface TranslationImportResult {
+  dryRun: boolean
+  /** The run receipt. `null` on a dry run — nothing was written. */
+  jobId: Id | null
+  languageCode: string
+  statistics: ImportStatistics
+  /** Every row the import touched or would touch. Capped server-side at 500. */
+  changes: ImportChange[]
+  errors: ImportError[]
+}
+
+/** Labels for the change kinds, so the preview and the run log agree on wording. */
+export const IMPORT_CHANGE_LABEL: Record<ImportChangeKind, string> = {
+  added: "New key",
+  updated: "Source text changed",
+  unchanged: "Unchanged",
+  disabled: "No longer in the file",
+  restored: "Back in the file",
+}

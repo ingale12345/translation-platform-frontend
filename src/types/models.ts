@@ -82,10 +82,22 @@ export interface User extends Entity {
   lastLoginAt?: string
 }
 
-/** The backend's `userDataSchema` only accepts these two on registration. */
+/**
+ * What `POST /users` accepts — the backend's `userDataSchema`, exactly.
+ *
+ * A platform admin creates accounts outright and sets the first password, so the profile
+ * fields are part of the create rather than a patch that follows it. Anything not listed
+ * here is rejected by the server: the data schema is `additionalProperties: false`.
+ */
 export interface UserCreate {
   email: string
   password: string
+  firstName?: string
+  lastName?: string
+  avatar?: string
+  phone?: string
+  status?: UserStatus
+  emailVerified?: boolean
 }
 
 export type UserPatch = Partial<Omit<User, keyof Entity>> & {
@@ -182,7 +194,17 @@ export interface ProjectMember extends Entity {
   lastAccessAt?: string
 }
 
-export type ProjectMemberCreate = Omit<ProjectMember, keyof Entity>
+/**
+ * `invitedBy` is omitted because the server stamps it.
+ *
+ * `stampActor('invitedBy')` runs before validation on the API, so the authenticated caller
+ * is always who the record credits — a client-supplied value would be both redundant and
+ * forgeable.
+ */
+export type ProjectMemberCreate = Omit<
+  ProjectMember,
+  keyof Entity | "invitedBy"
+>
 export type ProjectMemberPatch = Partial<ProjectMemberCreate>
 
 /* -------------------------------------------------------------------------- *
@@ -325,21 +347,26 @@ export interface TranslationKey extends Entity {
 export type VersionStatus = "DRAFT" | "PUBLISHED" | "SUPERSEDED"
 
 export interface VersionStatistics {
+  /** Keys frozen into this version — what publishing it would deliver. */
   total: number
+  /** Keys that entered the key set since the previous cut. */
   added: number
-  updated: number
-  unchanged: number
+  /** Keys that stopped being referenced since the previous cut. */
   disabled: number
+  /** Keys dropped by an earlier version and back in this one, translations intact. */
   restored: number
-  manualUntouched: number
+  /** Of `total`, how many carry a source value that is approved or published. */
+  ready: number
 }
 
 /**
- * One import.
+ * One release snapshot.
  *
- * Created by importing and by nothing else, so a version can never be forgotten. Exactly
- * one per application is `PUBLISHED` — that is the key set exports and the runtime API
- * deliver, and moving it is a separate, deliberate act from importing.
+ * Cut deliberately, never by importing. An import changes the working set — keys appear,
+ * keys stop being referenced — but says nothing about what is ready to ship. Freezing that
+ * working set into a numbered version is a separate act, and publishing the version is a
+ * third: exactly one per application is `PUBLISHED`, and that is the key set exports and
+ * the runtime API deliver.
  */
 export interface TranslationVersion extends Entity {
   organizationId: Id
@@ -347,13 +374,24 @@ export interface TranslationVersion extends Entity {
   applicationId: Id
   version: number
   status: VersionStatus
-  templateId?: Id
-  fileName?: string
-  languageCode: string
   statistics: VersionStatistics
+  /** Why it was cut — "sprint 12 sign-off". */
   note?: string
   publishedAt?: string
   publishedBy?: Id
+}
+
+/**
+ * What a caller supplies when cutting one.
+ *
+ * `version` and `statistics` are absent on purpose: the number is a sequence the server
+ * owns, and the statistics are a measurement of what freezing actually did.
+ */
+export interface TranslationVersionCreate {
+  organizationId: Id
+  projectId: Id
+  applicationId: Id
+  note?: string
 }
 
 export type TranslationVersionPatch = Partial<
@@ -456,11 +494,19 @@ export type TemplateCreate = Omit<Template, keyof Entity>
 export type TemplatePatch = Partial<TemplateCreate>
 
 export interface ImportJobStatistics {
+  /** Keys in the file. */
   total: number
   added: number
+  /** Source text differed from what was stored. */
   updated: number
   unchanged: number
+  /** Present before, absent from this file — disabled, not deleted. */
+  disabled: number
+  /** Disabled by an earlier import and back in this one, translations intact. */
+  restored: number
+  /** Console-created keys the file did not mention, and which were left alone. */
   skipped: number
+  /** Lines the parser could not read. */
   failed: number
 }
 
@@ -478,7 +524,8 @@ export interface ImportJob extends Entity {
   languageCode: string
   fileName: string
   fileExtension: string
-  filePath: string
+  /** Absent when there is no file at rest — the usual case. */
+  filePath?: string
   status: JobStatus
   statistics: ImportJobStatistics
   errors: ImportJobError[]

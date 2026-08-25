@@ -22,7 +22,6 @@ import {
   useUpdateProjectMember,
 } from "@/features/project-members/hooks"
 import { useAllRoles } from "@/features/roles/hooks"
-import { useCurrentUser } from "@/features/session/hooks"
 import { useAllUsers } from "@/features/users/hooks"
 import { fullName } from "@/lib/format"
 import { errorMessage } from "@/lib/http/errors"
@@ -54,7 +53,6 @@ export function AssignManagerDialog({
   onOpenChange,
 }: AssignManagerDialogProps) {
   const [search, setSearch] = useState("")
-  const currentUser = useCurrentUser()
   const createMember = useInviteProjectMember()
   const updateMember = useUpdateProjectMember()
 
@@ -132,7 +130,6 @@ export function AssignManagerDialog({
         userId,
         roleIds: [managerRole._id],
         status: "active",
-        invitedBy: currentUser?._id ?? userId,
         joinedAt: new Date().toISOString(),
       },
       handlers

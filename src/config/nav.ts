@@ -6,6 +6,7 @@ import {
   KeyRoundIcon,
   LanguagesIcon,
   LayoutDashboardIcon,
+  RocketIcon,
   ScrollTextIcon,
   SettingsIcon,
   ShieldIcon,
@@ -117,6 +118,15 @@ export const NAV: NavGroup[] = [
         label: "Export",
         icon: DownloadIcon,
         entitlement: ENTITLEMENTS.EXPORT,
+      },
+      // Gated on TRANSLATIONS, not IMPORT: publishing a version is what Reviewer exists
+      // to do, and Reviewer has no import permission at all. Behind the import gate the
+      // publish screen would be hidden from exactly the role that needs it.
+      {
+        to: "/versions",
+        label: "Versions",
+        icon: RocketIcon,
+        entitlement: ENTITLEMENTS.TRANSLATIONS,
       },
     ],
   },
